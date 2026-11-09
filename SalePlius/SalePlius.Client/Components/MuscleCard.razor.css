@@ -1,0 +1,6 @@
+@media (min-width: 992px) {
+    .muscle-card {
+        position: sticky;
+        top: 88px;
+    }
+}

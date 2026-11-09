@@ -1,0 +1,165 @@
+@page "/programs"
+@inject ApiService Api
+@inject CustomAuthStateProvider Auth
+@inject CategoryStore Categories
+
+<PageTitle>Programos · Salė+</PageTitle>
+
+<div class="page-head">
+    <div>
+        <h1>Programos</h1>
+        <p>Kelių savaičių planai, sudaryti iš treniruočių.</p>
+    </div>
+    @if (Auth.CanCreateContent)
+    {
+        <a class="btn btn-warning" href="create-program">Nauja programa</a>
+    }
+</div>
+
+<div class="d-flex flex-wrap gap-2 align-items-center mb-4">
+    <input class="form-control flex-grow-1" style="max-width: 360px;" placeholder="Ieškoti..." @bind="search" @bind:event="oninput" @bind:after="SearchChanged" />
+
+    <select class="form-select w-auto" @bind="goal" @bind:after="Reload">
+        <option value="">Visi tikslai</option>
+        @foreach (var g in goals)
+        {
+            <option value="@g">@g</option>
+        }
+    </select>
+
+    <select class="form-select w-auto" @bind="sort" @bind:after="Reload">
+        <option value="@WorkoutSort.Newest">Naujausios</option>
+        <option value="@WorkoutSort.Name">Pagal pavadinimą</option>
+    </select>
+
+    @if (Auth.IsAuthenticated)
+    {
+        <div class="segmented ms-md-auto">
+            <button class="@(onlyMine ? "" : "active")" @onclick="() => SetMine(false)">Visos</button>
+            <button class="@(onlyMine ? "active" : "")" @onclick="() => SetMine(true)">Mano</button>
+        </div>
+    }
+</div>
+
+<div class="row g-4">
+    @* Muscle filter: right column on large screens, above the list on phones *@
+    <div class="col-lg-4 order-lg-2">
+        <MuscleFilter @bind-Selected="muscles" @bind-Selected:after="Reload" Hover="hover" />
+    </div>
+
+    <div class="col-lg-8">
+@if (error != null)
+{
+    <div class="alert alert-danger">@error</div>
+}
+
+@if (page == null)
+{
+    <Loading />
+}
+else if (page.Items.Count == 0)
+{
+    <div class="empty">
+        @if (onlyMine)
+        {
+            <p class="mb-3">Dar neturite savo programų.</p>
+            <a href="create-program" class="btn btn-warning">Sukurti programą</a>
+        }
+        else if (muscles.Count > 0)
+        {
+            <span>Nėra programų, apimančių visas pasirinktas raumenų grupes.</span>
+        }
+        else
+        {
+            <span>Programų nerasta.</span>
+        }
+    </div>
+}
+else
+{
+    <div class="row g-3">
+        @foreach (var p in page.Items)
+        {
+            @* Hovering (or tabbing into) a card lights up the muscles its workouts train *@
+            <HoverZone class="col-md-6" Hover="hover" Primary="p.MuscleGroups">
+                <ProgramCard Program="p">
+                    <Actions>
+                        <SaveButton Kind="@SavedKind.Programs" ItemId="@p.Id" />
+                    </Actions>
+                </ProgramCard>
+            </HoverZone>
+        }
+    </div>
+    <Pager Page="page" OnNavigate="LoadUrl" />
+}
+    </div>
+</div>
+
+@code {
+    private List<string> goals = new();
+    private const int PageSize = 6;
+
+    private PagedResult<TrainingProgram>? page;
+    private string? search, goal, error;
+    private string sort = WorkoutSort.Newest;
+    private bool onlyMine;
+    private IReadOnlyList<string> muscles = Array.Empty<string>();
+    private readonly MuscleHover hover = new();
+
+    // Search waits until typing pauses, instead of calling the API on every key press.
+    private CancellationTokenSource? searchPause;
+
+    private async Task SearchChanged()
+    {
+        searchPause?.Cancel();
+        searchPause = new CancellationTokenSource();
+        try
+        {
+            await Task.Delay(300, searchPause.Token);
+        }
+        catch (TaskCanceledException)
+        {
+            return;
+        }
+        await Reload();
+    }
+
+    private string FirstPageUrl => ApiService.Url("api/programs", new()
+    {
+        ["search"] = search,
+        ["goal"] = goal,
+        ["muscleGroup"] = muscles.Count == 0 ? null : string.Join(",", muscles),
+        ["sort"] = sort,
+        ["authorId"] = onlyMine ? Auth.CurrentUser?.Id : null,
+        ["page"] = "1",
+        ["pageSize"] = PageSize.ToString()
+    });
+
+    protected override async Task OnInitializedAsync()
+    {
+        goals = await Categories.NamesAsync(CategoryTypes.Goal);
+        await Reload();
+    }
+
+    private Task Reload() => LoadUrl(FirstPageUrl);
+
+    private async Task LoadUrl(string url)
+    {
+        try
+        {
+            error = null;
+            page = await Api.GetPageAsync<TrainingProgram>(url);
+        }
+        catch (Exception ex)
+        {
+            error = $"Nepavyko pasiekti API: {ex.Message}";
+            page ??= new();
+        }
+    }
+
+    private async Task SetMine(bool mine)
+    {
+        onlyMine = mine;
+        await Reload();
+    }
+}

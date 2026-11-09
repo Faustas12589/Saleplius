@@ -1,0 +1,69 @@
+@* Asks before something is deleted. Use with @bind-Request; set Request to show it. *@
+
+@if (Request != null)
+{
+    <div class="modal d-block confirm-backdrop" tabindex="-1" role="dialog" aria-modal="true" aria-labelledby="confirm-title"
+         @onkeydown="OnKey">
+        <div class="modal-dialog modal-dialog-centered confirm-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="confirm-title">@Request.Title</h5>
+                    <button type="button" class="btn-close" aria-label="Uždaryti" disabled="@busy" @onclick="Cancel"></button>
+                </div>
+                <div class="modal-body">
+                    <p class="mb-0">@Request.Message</p>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" disabled="@busy" @onclick="Cancel" @ref="cancelButton">Atšaukti</button>
+                    <button type="button" class="btn btn-danger" disabled="@busy" @onclick="Confirm">
+                        @(busy ? "Vykdoma..." : Request.ConfirmText)
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public Confirmation? Request { get; set; }
+    [Parameter] public EventCallback<Confirmation?> RequestChanged { get; set; }
+
+    private bool busy;
+    private ElementReference cancelButton;
+    private Confirmation? focusedFor;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        // Put keyboard focus on "Atšaukti" when the dialog opens, so Enter never deletes by accident.
+        if (Request != null && !ReferenceEquals(focusedFor, Request))
+        {
+            focusedFor = Request;
+            try
+            {
+                await cancelButton.FocusAsync();
+            }
+            catch
+            {
+            }
+        }
+    }
+
+    private async Task Confirm()
+    {
+        if (Request == null) return;
+        busy = true;
+        try
+        {
+            await Request.Action();
+        }
+        finally
+        {
+            busy = false;
+            await RequestChanged.InvokeAsync(null);
+        }
+    }
+
+    private Task Cancel() => busy ? Task.CompletedTask : RequestChanged.InvokeAsync(null);
+
+    private Task OnKey(KeyboardEventArgs e) => e.Key == "Escape" ? Cancel() : Task.CompletedTask;
+}

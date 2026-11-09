@@ -1,0 +1,25 @@
+@* Where you are in the hierarchy, e.g. Programos › Masės blokas › Kojų diena › Pritūpimai.
+   The last item is the current page and is not a link. *@
+<nav class="crumbs" aria-label="Kelias">
+    @for (var i = 0; i < Items.Count; i++)
+    {
+        var (label, href) = Items[i];
+        @if (i > 0)
+        {
+            <span class="sep" aria-hidden="true">›</span>
+        }
+        @if (href != null && i < Items.Count - 1)
+        {
+            <a href="@href">@label</a>
+        }
+        else
+        {
+            <span aria-current="@(i == Items.Count - 1 ? "page" : null)">@label</span>
+        }
+    }
+</nav>
+
+@code {
+    /// <summary>(label, href) pairs from the top level down to the current page.</summary>
+    [Parameter] public List<(string Label, string? Href)> Items { get; set; } = new();
+}

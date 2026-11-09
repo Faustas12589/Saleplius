@@ -1,0 +1,68 @@
+@inject CategoryStore Categories
+
+@* Muscle-group filter for list pages: just the body. Folds away on small screens. *@
+
+<section class="card muscle-filter @(open ? "open" : "")" aria-label="Raumenų grupių filtras">
+    <div class="card-body">
+        @if (Selected.Count > 0)
+        {
+            @* Sits in the corner so it never pushes the body down *@
+            <button class="btn btn-sm btn-link p-0 mf-clear" @onclick="Clear">Išvalyti</button>
+        }
+
+        <button class="btn btn-sm btn-outline-secondary mf-toggle d-lg-none" aria-expanded="@(open ? "true" : "false")" @onclick="() => open = !open">
+            <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" class="chevron">
+                <path d="M3.5 6 L8 10.5 L12.5 6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
+            Raumenys@(Selected.Count > 0 ? $" ({Selected.Count})" : "")
+        </button>
+
+        <div class="mf-body">
+            <MuscleMap Selected="Selected" Hover="Hover" OnToggle="Toggle" MaxWidth="360" />
+
+            @if (others.Count > 0)
+            {
+                @* Categories an admin added that have no place on the body *@
+                <div class="d-flex flex-wrap justify-content-center gap-1 mt-3">
+                    @foreach (var g in others)
+                    {
+                        <button class="chip chip-btn @(Selected.Contains(g) ? "chip-accent" : "")"
+                                aria-pressed="@(Selected.Contains(g) ? "true" : "false")" @onclick="() => Toggle(g)">@g</button>
+                    }
+                </div>
+            }
+        </div>
+    </div>
+</section>
+
+@code {
+    /// <summary>Chosen muscle groups. Use with @bind-Selected (and @bind-Selected:after to reload).</summary>
+    [Parameter] public IReadOnlyList<string> Selected { get; set; } = Array.Empty<string>();
+    [Parameter] public EventCallback<IReadOnlyList<string>> SelectedChanged { get; set; }
+
+    /// <summary>The card under the mouse (set by the page's HoverZones), lit up on the body.</summary>
+    [Parameter] public MuscleHover? Hover { get; set; }
+
+    private bool open;
+    private List<string> others = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            others = (await Categories.NamesAsync(CategoryTypes.MuscleGroup)).Where(g => !MuscleMap.IsOnBody(g)).ToList();
+        }
+        catch
+        {
+            others = new();
+        }
+    }
+
+    private Task Toggle(string group)
+    {
+        var next = Selected.Contains(group) ? Selected.Where(g => g != group).ToList() : Selected.Append(group).ToList();
+        return SelectedChanged.InvokeAsync(next);
+    }
+
+    private Task Clear() => SelectedChanged.InvokeAsync(Array.Empty<string>());
+}

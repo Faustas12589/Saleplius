@@ -1,0 +1,215 @@
+@page "/programs/{ProgramId}/workouts/{WorkoutId}/exercises/{EntryId}"
+@inject ApiService Api
+@inject CustomAuthStateProvider Auth
+@inject NavigationManager Nav
+
+<PageTitle>@(entry?.ExerciseName ?? "Pratimas") · Salė+</PageTitle>
+
+@if (loading)
+{
+    <Loading />
+}
+else if (program == null || workout == null || entry == null)
+{
+    <div class="empty">Pratimas nerastas. Galbūt jis buvo pašalintas iš treniruotės.</div>
+}
+else
+{
+    var canModify = Auth.CanModify(workout.CreatedByUserId);
+    var index = workout.Exercises.FindIndex(e => e.Id == entry.Id);
+    var prev = index > 0 ? workout.Exercises[index - 1] : null;
+    var next = index >= 0 && index < workout.Exercises.Count - 1 ? workout.Exercises[index + 1] : null;
+
+    <Breadcrumbs Items="@(new() { ("Programos", "programs"), (program.Title, $"programs/{program.Id}"), (workout.Title, WorkoutUrl), (entry.ExerciseName, null) })" />
+
+    <header class="mt-2 mb-4 pb-4" style="border-bottom: 1px solid var(--line);">
+        <div class="eyebrow mb-2">@(index + 1)-as pratimas iš @workout.Exercises.Count</div>
+        <h1 class="mb-2" style="font-size: clamp(1.7rem, 3vw, 2.4rem); font-weight: 800;">@entry.ExerciseName</h1>
+        @if (exercise != null)
+        {
+            <div class="d-flex flex-wrap gap-1">
+                <span class="chip">@exercise.MuscleGroup</span>
+                <span class="chip">@exercise.Equipment</span>
+                <span class="chip">@WorkoutCard.DifficultyLt(exercise.Difficulty)</span>
+            </div>
+        }
+    </header>
+
+    @if (message != null)
+    {
+        <div class="alert alert-success alert-dismissible">
+            @message
+            <button type="button" class="btn-close" @onclick="() => message = null"></button>
+        </div>
+    }
+    @if (error != null)
+    {
+        <div class="alert alert-danger alert-dismissible">
+            @error
+            <button type="button" class="btn-close" @onclick="() => error = null"></button>
+        </div>
+    }
+
+    <div class="row g-4">
+        <!-- Muscles: right column on large screens, first on phones -->
+        <div class="col-lg-4 order-lg-2">
+            @if (exercise != null)
+            {
+                <MuscleCard Primary="@(new[] { exercise.MuscleGroup })" Secondary="exercise.SecondaryMuscleGroups" />
+            }
+        </div>
+
+        <div class="col-lg-8">
+            <h2 class="section-title">Šioje treniruotėje</h2>
+            @if (!editing)
+            {
+                <div class="stat-row mb-3" style="grid-template-columns: repeat(2, 1fr);">
+                    <div class="stat"><strong>@entry.Sets</strong><span>serijos</span></div>
+                    <div class="stat"><strong>@entry.Reps</strong><span>pakartojimai</span></div>
+                </div>
+                @if (!string.IsNullOrWhiteSpace(entry.Notes))
+                {
+                    <p><span class="meta">Pastaba:</span> @entry.Notes</p>
+                }
+                @if (canModify)
+                {
+                    <div class="d-flex gap-2">
+                        <button class="btn btn-sm btn-warning" @onclick="StartEdit">Redaguoti</button>
+                        <button class="btn btn-sm btn-ghost text-danger ms-auto" @onclick="AskRemove">Pašalinti iš treniruotės</button>
+                    </div>
+                }
+            }
+            else
+            {
+                <div class="card card-body">
+                    <label class="form-label">Pratimas</label>
+                    <select class="form-select mb-2" @bind="form.ExerciseId">
+                        @foreach (var ex in library)
+                        {
+                            <option value="@ex.Id">@ex.Name</option>
+                        }
+                    </select>
+                    <div class="row g-2 mb-2">
+                        <div class="col-6">
+                            <label class="form-label">Serijos</label>
+                            <input type="number" min="1" max="50" class="form-control" @bind="form.Sets" />
+                        </div>
+                        <div class="col-6">
+                            <label class="form-label">Pakartojimai</label>
+                            <input type="number" min="1" max="500" class="form-control" @bind="form.Reps" />
+                        </div>
+                    </div>
+                    <label class="form-label">Pastaba</label>
+                    <input class="form-control mb-3" @bind="form.Notes" />
+                    <div class="d-flex justify-content-end gap-2">
+                        <button class="btn btn-sm btn-outline-secondary" @onclick="() => editing = false">Atšaukti</button>
+                        <button class="btn btn-sm btn-warning" disabled="@saving" @onclick="Save">@(saving ? "Saugoma..." : "Išsaugoti")</button>
+                    </div>
+                </div>
+            }
+
+            <h2 class="section-title mt-5">Apie pratimą</h2>
+            @if (exercise == null)
+            {
+                <p class="text-muted">Pratimo aprašymas bibliotekoje nerastas.</p>
+            }
+            else
+            {
+                <p>@exercise.Description</p>
+                @if (!string.IsNullOrWhiteSpace(exercise.Instructions))
+                {
+                    <p><span class="meta">Kaip atlikti:</span> @exercise.Instructions</p>
+                }
+                <a href="exercises/@exercise.Id" class="small fw-semibold">Pratimas bibliotekoje →</a>
+            }
+        </div>
+    </div>
+
+    <nav class="pager" aria-label="Kiti pratimai">
+        @if (prev != null)
+        {
+            <a class="btn btn-sm btn-outline-secondary" href="@EntryUrl(prev)">← @prev.ExerciseName</a>
+        }
+        <a class="btn btn-sm btn-ghost" href="@WorkoutUrl">Visa treniruotė</a>
+        @if (next != null)
+        {
+            <a class="btn btn-sm btn-outline-secondary" href="@EntryUrl(next)">@next.ExerciseName →</a>
+        }
+    </nav>
+}
+
+<ConfirmModal @bind-Request="confirm" />
+
+@code {
+    private Confirmation? confirm;   // the "are you sure?" question shown in ConfirmModal
+
+    private void AskRemove() =>
+        confirm = new("Pašalinti pratimą?", $"„{entry!.ExerciseName}“ bus pašalintas iš treniruotės „{workout!.Title}“.", Remove, "Pašalinti");
+    [Parameter] public string ProgramId { get; set; } = string.Empty;
+    [Parameter] public string WorkoutId { get; set; } = string.Empty;
+    [Parameter] public string EntryId { get; set; } = string.Empty;
+
+    private TrainingProgram? program;
+    private Workout? workout;
+    private WorkoutExerciseItem? entry;
+    private Exercise? exercise;
+    private List<Exercise> library = new();
+    private AddWorkoutExerciseDto form = new();
+    private bool loading = true, editing, saving;
+    private string? error, message;
+
+    private string WorkoutUrl => $"programs/{ProgramId}/workouts/{WorkoutId}";
+    private string EntryUrl(WorkoutExerciseItem e) => $"{WorkoutUrl}/exercises/{e.Id}";
+
+    // Also runs when moving to the previous/next exercise (same page, new EntryId).
+    protected override async Task OnParametersSetAsync()
+    {
+        loading = true;
+        editing = false;
+        message = error = null;
+
+        // Each level is read through its parent, so a wrong combination shows "not found".
+        program = await Api.GetProgramAsync(ProgramId);
+        workout = program == null ? null : await Api.GetProgramWorkoutAsync(ProgramId, WorkoutId);
+        entry = workout == null ? null : await Api.GetWorkoutEntryAsync(ProgramId, WorkoutId, EntryId);
+        exercise = entry == null ? null : await Api.GetExerciseAsync(entry.ExerciseId);
+
+        loading = false;
+    }
+
+    private async Task StartEdit()
+    {
+        library = await Api.GetExercisesAsync();
+        form = new AddWorkoutExerciseDto { ExerciseId = entry!.ExerciseId, Sets = entry.Sets, Reps = entry.Reps, Notes = entry.Notes };
+        editing = true;
+    }
+
+    private async Task Save()
+    {
+        saving = true;
+        var (ok, err) = await Api.UpdateWorkoutEntryAsync(ProgramId, WorkoutId, EntryId, form);
+        saving = false;
+
+        if (!ok)
+        {
+            error = err;
+            return;
+        }
+
+        await OnParametersSetAsync();
+        message = "Pratimas atnaujintas.";
+    }
+
+    private async Task Remove()
+    {
+        var (ok, err) = await Api.DeleteWorkoutEntryAsync(ProgramId, WorkoutId, EntryId);
+        if (ok)
+        {
+            Nav.NavigateTo(WorkoutUrl);
+        }
+        else
+        {
+            error = err;
+        }
+    }
+}

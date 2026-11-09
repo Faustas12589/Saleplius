@@ -1,0 +1,49 @@
+# Build output
+[Bb]in/
+[Oo]bj/
+[Dd]ebug/
+[Rr]elease/
+[Pp]ublish/
+*.dll
+*.pdb
+*.exe
+
+# Visual Studio / Rider / VS Code
+.vs/
+.idea/
+.vscode/*
+!.vscode/settings.json
+!.vscode/launch.json
+!.vscode/tasks.json
+*.user
+*.suo
+*.userprefs
+*.sln.docstates
+*.rsuser
+*.slnLaunch.user
+
+# NuGet
+*.nupkg
+packages/
+.nuget/
+
+# Test results / coverage
+[Tt]est[Rr]esult*/
+*.trx
+coverage*/
+
+# Node (scripts, Postman CLI reports)
+node_modules/
+newman/
+
+# Secrets: Firebase service-account keys and local env files must never be committed
+*firebase-adminsdk*.json
+*serviceAccount*.json
+.env
+.env.*
+appsettings.*.local.json
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini

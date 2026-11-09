@@ -1,0 +1,34 @@
+@inject CustomAuthStateProvider Auth
+@implements IDisposable
+
+<nav class="mainnav" aria-label="Pagrindinis meniu">
+    <NavLink href="programs"><Icon Name="calendar" />Programos</NavLink>
+    <NavLink href="workouts"><Icon Name="dumbbell" />Treniruotės</NavLink>
+    <NavLink href="exercises"><Icon Name="activity" />Pratimai</NavLink>
+    <AuthorizeView>
+        <Authorized>
+            <NavLink href="saved"><Icon Name="bookmark" />Išsaugoti</NavLink>
+            @if (Auth.IsAdmin)
+            {
+                <NavLink href="tickets"><Icon Name="flag" />Pranešimai</NavLink>
+                <NavLink href="users"><Icon Name="users" />Vartotojai</NavLink>
+                <NavLink href="categories"><Icon Name="tag" />Kategorijos</NavLink>
+            }
+        </Authorized>
+    </AuthorizeView>
+</nav>
+
+@code {
+    protected override async Task OnInitializedAsync()
+    {
+        Auth.AuthenticationStateChanged += OnAuthStateChanged;
+        await Auth.GetAuthenticationStateAsync();
+    }
+
+    private void OnAuthStateChanged(Task<AuthenticationState> task)
+    {
+        InvokeAsync(StateHasChanged);
+    }
+
+    public void Dispose() => Auth.AuthenticationStateChanged -= OnAuthStateChanged;
+}

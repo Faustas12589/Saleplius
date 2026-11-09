@@ -1,0 +1,170 @@
+@page "/categories"
+@attribute [Authorize]
+@inject ApiService Api
+@inject CustomAuthStateProvider Auth
+@inject CategoryStore Store
+
+<PageTitle>Kategorijos · Salė+</PageTitle>
+
+@if (!Auth.IsAdmin)
+{
+    <div class="empty">Šis puslapis skirtas tik administratoriams.</div>
+}
+else
+{
+    <div class="page-head">
+        <div>
+            <h1>Kategorijos</h1>
+            <p>Leidžiamos reikšmės pratimams, treniruotėms ir programoms. Pervadinus pakeitimas pritaikomas visur.</p>
+        </div>
+    </div>
+
+    @if (error != null)
+    {
+        <div class="alert alert-danger alert-dismissible">
+            @error
+            <button type="button" class="btn-close" @onclick="() => error = null"></button>
+        </div>
+    }
+    @if (message != null)
+    {
+        <div class="alert alert-success alert-dismissible">
+            @message
+            <button type="button" class="btn-close" @onclick="() => message = null"></button>
+        </div>
+    }
+
+    @if (all == null)
+    {
+        <Loading />
+    }
+    else
+    {
+        <div class="row g-4">
+            @foreach (var (type, title, hint) in Sections)
+            {
+                var items = all.Where(c => c.Type == type).ToList();
+                <div class="col-lg-4">
+                    <h2 class="section-title">@title <span class="meta fw-normal">@items.Count</span></h2>
+                    <div class="card">
+                        @foreach (var c in items)
+                        {
+                            <div class="user-row">
+                                @if (editingId == c.Id)
+                                {
+                                    <div class="flex-grow-1">
+                                        <input class="form-control form-control-sm mb-1" maxlength="40" @bind="editName" />
+                                        <input class="form-control form-control-sm mb-2" maxlength="200" placeholder="Aprašymas" @bind="editDescription" />
+                                        <div class="d-flex gap-2">
+                                            <button class="btn btn-sm btn-warning" disabled="@busy" @onclick="() => SaveEdit(c)">Išsaugoti</button>
+                                            <button class="btn btn-sm btn-ghost" @onclick="() => editingId = null">Atšaukti</button>
+                                        </div>
+                                    </div>
+                                }
+                                else
+                                {
+                                    <div class="flex-grow-1 min-w-0">
+                                        <div class="fw-semibold">@c.Name</div>
+                                        @if (!string.IsNullOrWhiteSpace(c.Description))
+                                        {
+                                            <div class="meta text-truncate">@c.Description</div>
+                                        }
+                                    </div>
+                                    <div class="d-flex gap-1 flex-shrink-0">
+                                        <button class="btn btn-sm btn-ghost" @onclick="() => StartEdit(c)">Pervadinti</button>
+                                        <button class="btn btn-sm btn-ghost text-danger" disabled="@busy" @onclick="() => AskDelete(c)">Ištrinti</button>
+                                    </div>
+                                }
+                            </div>
+                        }
+                        <div class="user-row" style="background: var(--surface-2);">
+                            <div class="flex-grow-1">
+                                <input class="form-control form-control-sm mb-1" maxlength="40" placeholder="@hint" @bind="newNames[type]" />
+                                <input class="form-control form-control-sm mb-2" maxlength="200" placeholder="Aprašymas (nebūtina)" @bind="newDescriptions[type]" />
+                                <button class="btn btn-sm btn-dark" disabled="@(busy || string.IsNullOrWhiteSpace(newNames[type]))" @onclick="() => Add(type)">+ Pridėti</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            }
+        </div>
+    }
+}
+
+<ConfirmModal @bind-Request="confirm" />
+
+@code {
+    private Confirmation? confirm;   // the "are you sure?" question shown in ConfirmModal
+
+    private void AskDelete(Category c) =>
+        confirm = new("Ištrinti kategoriją?", $"Kategorija „{c.Name}“ bus ištrinta. Jei ji dar naudojama, API ištrinti neleis.", () => Delete(c));
+    private static readonly (string Type, string Title, string Hint)[] Sections =
+    {
+        (CategoryTypes.MuscleGroup, "Raumenų grupės", "pvz. Blauzdos"),
+        (CategoryTypes.Equipment, "Įranga", "pvz. Gumos"),
+        (CategoryTypes.Goal, "Programų tikslai", "pvz. Lankstumas")
+    };
+
+    private List<Category>? all;
+    private readonly Dictionary<string, string> newNames = CategoryTypes.All.ToDictionary(t => t, _ => "");
+    private readonly Dictionary<string, string> newDescriptions = CategoryTypes.All.ToDictionary(t => t, _ => "");
+    private string? editingId, editName, editDescription, error, message;
+    private bool busy;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (Auth.IsAdmin) await Load();
+    }
+
+    private async Task Load()
+    {
+        Store.Invalidate();   // other pages pick up the change too
+        all = await Store.AllAsync();
+    }
+
+    private async Task Add(string type)
+    {
+        await Run(() => Api.CreateCategoryAsync(new CreateCategoryDto { Type = type, Name = newNames[type], Description = newDescriptions[type] }),
+                  $"Kategorija „{newNames[type].Trim()}“ pridėta.");
+        if (error == null)
+        {
+            newNames[type] = "";
+            newDescriptions[type] = "";
+        }
+    }
+
+    private void StartEdit(Category c)
+    {
+        editingId = c.Id;
+        editName = c.Name;
+        editDescription = c.Description;
+    }
+
+    private async Task SaveEdit(Category c)
+    {
+        await Run(() => Api.UpdateCategoryAsync(c.Id, new UpdateCategoryDto { Name = editName ?? "", Description = editDescription ?? "" }),
+                  c.Name == editName?.Trim() ? "Kategorija atnaujinta." : $"„{c.Name}“ pervadinta į „{editName?.Trim()}“ visur, kur ji naudojama.");
+        if (error == null) editingId = null;
+    }
+
+    private Task Delete(Category c) => Run(() => Api.DeleteCategoryAsync(c.Id), $"Kategorija „{c.Name}“ ištrinta.");
+
+    /// <summary>Calls the API, shows its message on failure, reloads on success.</summary>
+    private async Task Run(Func<Task<(bool Success, string? Error)>> action, string success)
+    {
+        busy = true;
+        error = message = null;
+        var (ok, err) = await action();
+        busy = false;
+
+        if (ok)
+        {
+            message = success;
+            await Load();
+        }
+        else
+        {
+            error = err;
+        }
+    }
+}

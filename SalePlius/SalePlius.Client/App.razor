@@ -1,0 +1,21 @@
+<CascadingAuthenticationState>
+    <Router AppAssembly="@typeof(App).Assembly">
+        <Found Context="routeData">
+            <AuthorizeRouteView RouteData="@routeData" DefaultLayout="@typeof(MainLayout)">
+                <NotAuthorized>
+                    <div class="alert alert-warning m-4">
+                        <h4>Prieiga apribota</h4>
+                        <p>Neturite teisių peržiūrėti šio puslapio. Prašome <a href="login">prisijungti</a> su reikiamomis teisėmis.</p>
+                    </div>
+                </NotAuthorized>
+            </AuthorizeRouteView>
+            <FocusOnNavigate RouteData="@routeData" Selector="h1" />
+        </Found>
+        <NotFound>
+            <PageTitle>Puslapis nerastas</PageTitle>
+            <LayoutView Layout="@typeof(MainLayout)">
+                <p role="alert">Atsiprašome, šiuo adresu nieko nerasta.</p>
+            </LayoutView>
+        </NotFound>
+    </Router>
+</CascadingAuthenticationState>

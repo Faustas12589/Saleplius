@@ -1,0 +1,657 @@
+@page "/workouts/{Id}"
+@page "/programs/{ProgramId}/workouts/{Id}"
+@inject ApiService Api
+@inject CustomAuthStateProvider Auth
+@inject NavigationManager Nav
+@inject CategoryStore Categories
+
+<PageTitle>@(workout?.Title ?? "Treniruotė") · Salė+</PageTitle>
+
+@if (program != null && workout != null)
+{
+    <Breadcrumbs Items="@(new() { ("Programos", "programs"), (program.Title, $"programs/{program.Id}"), (workout.Title, null) })" />
+}
+else
+{
+    <a href="workouts" class="small fw-semibold text-decoration-none">← Treniruotės</a>
+}
+
+@if (error != null)
+{
+    <div class="alert alert-danger alert-dismissible fade show">
+        @error
+        <button type="button" class="btn-close" @onclick="() => error = null"></button>
+    </div>
+}
+@if (message != null)
+{
+    <div class="alert alert-success alert-dismissible fade show">
+        @message
+        <button type="button" class="btn-close" @onclick="() => message = null"></button>
+    </div>
+}
+
+@if (loading)
+{
+    <Loading Class="mt-3" />
+}
+else if (workout == null)
+{
+    <div class="empty mt-3">Treniruotė nerasta. Galbūt ji buvo ištrinta.</div>
+}
+else
+{
+    var mine = Auth.Owns(workout.CreatedByUserId);
+    var canModify = Auth.CanModify(workout.CreatedByUserId);
+
+    <header class="mt-2 mb-4 pb-4" style="border-bottom: 1px solid var(--line);">
+        <div class="d-flex flex-wrap justify-content-between align-items-start gap-3">
+            <div style="max-width: 46rem;">
+                <h1 class="mb-2" style="font-size: clamp(1.7rem, 3vw, 2.4rem); font-weight: 800;">@workout.Title</h1>
+                <div class="meta mb-3">
+                    @if (mine)
+                    {
+                        <span class="badge badge-mine">Mano</span>
+                    }
+                    else
+                    {
+                        <a href="profile/@workout.CreatedByUserId">@workout.CreatedByUserName</a>
+                    }
+                    <span class="dot">@workout.CreatedAt.ToLocalTime().ToString("yyyy-MM-dd")</span>
+                    <span class="dot">@WorkoutCard.DifficultyLt(workout.Difficulty)</span>
+                    <span class="dot">@Text.Plural(workout.Exercises.Count, "pratimas", "pratimai", "pratimų")</span>
+                </div>
+                @if (!string.IsNullOrWhiteSpace(workout.Description))
+                {
+                    <p class="mb-3" style="color: var(--ink-2); font-size: 1.05rem;">@workout.Description</p>
+                }
+                <div class="d-flex flex-wrap gap-1">
+                    @foreach (var m in workout.TargetMuscleGroups)
+                    {
+                        <span class="chip">@m</span>
+                    }
+                </div>
+                @if (program != null && workout.Days.Count > 0)
+                {
+                    <div class="meta mt-3">
+                        Programoje „<a href="programs/@program.Id" class="fw-semibold">@program.Title</a>“:
+                        @string.Join(", ", workout.Days.Select(ProgramText.Day))
+                    </div>
+                }
+            </div>
+
+            <div class="text-end">
+                <div class="rating" style="font-size: 1.6rem;">
+                    @if (workout.RatingsCount > 0)
+                    {
+                        <span class="star">★</span> @workout.AverageRating.ToString("0.0")
+                    }
+                    else
+                    {
+                        <span class="meta">Dar neįvertinta</span>
+                    }
+                </div>
+                @if (workout.RatingsCount > 0)
+                {
+                    <div class="meta">@Text.Plural(workout.RatingsCount, "įvertinimas", "įvertinimai", "įvertinimų")</div>
+                }
+            </div>
+        </div>
+
+        <div class="d-flex flex-wrap gap-2 mt-4">
+            <SaveButton Kind="@SavedKind.Workouts" ItemId="@workout.Id" />
+            <button class="btn btn-sm btn-outline-secondary" @onclick="ViewSummary">Tekstinė suvestinė</button>
+
+            @if (Auth.IsAuthenticated && !mine)
+            {
+                <button class="btn btn-sm btn-ghost ms-auto" @onclick="OpenReport">Pranešti apie pažeidimą</button>
+            }
+            @if (canModify)
+            {
+                <button class="btn btn-sm btn-outline-secondary ms-auto" @onclick="OpenEdit"><Icon Name="pencil" Size="15" /> Redaguoti</button>
+                <button class="btn btn-sm btn-outline-danger" @onclick="AskDeleteWorkout"><Icon Name="trash" Size="15" /> Ištrinti</button>
+            }
+        </div>
+    </header>
+
+    <div class="row g-4">
+        <!-- Muscles: right column on large screens, first on phones -->
+        <div class="col-lg-4 order-lg-2">
+            <MuscleCard Primary="workout.TargetMuscleGroups" Secondary="OtherMuscles" Hover="hover" />
+        </div>
+
+        <!-- Exercises -->
+        <div class="col-lg-8">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+                <h2 class="section-title mb-0">Pratimai (@workout.Exercises.Count)</h2>
+                @if (canModify && !showAddExercise)
+                {
+                    <button class="btn btn-sm btn-outline-primary" @onclick="OpenAddExercise">+ Pridėti pratimą</button>
+                }
+            </div>
+
+            @if (showAddExercise)
+            {
+                <div class="card card-body mb-3">
+                    <EditForm Model="addExerciseDto" OnValidSubmit="SubmitAddExercise">
+                        <DataAnnotationsValidator />
+                        <ValidationSummary />
+                        <select class="form-select mb-2" @onchange="OnExerciseSelected">
+                            <option value="">-- Pasirinkite pratimą --</option>
+                            @foreach (var ex in allExercises)
+                            {
+                                <option value="@ex.Id">@ex.Name (@ex.MuscleGroup)</option>
+                            }
+                        </select>
+                        <div class="row g-2 mb-2">
+                            <div class="col-4">
+                                <label class="form-label small mb-0">Serijos</label>
+                                <InputNumber class="form-control form-control-sm" min="1" max="50" @bind-Value="addExerciseDto.Sets" />
+                            </div>
+                            <div class="col-4">
+                                <label class="form-label small mb-0">Pakartojimai</label>
+                                <InputNumber class="form-control form-control-sm" min="1" max="500" @bind-Value="addExerciseDto.Reps" />
+                            </div>
+                            <div class="col-4">
+                                <label class="form-label small mb-0">Pastabos</label>
+                                <InputText class="form-control form-control-sm" @bind-Value="addExerciseDto.Notes" />
+                            </div>
+                        </div>
+                        <div class="d-flex justify-content-end gap-2">
+                            <button type="button" class="btn btn-sm btn-secondary" @onclick="() => showAddExercise = false">Atšaukti</button>
+                            <button type="submit" class="btn btn-sm btn-primary" disabled="@string.IsNullOrEmpty(addExerciseDto.ExerciseId)">Pridėti</button>
+                        </div>
+                    </EditForm>
+                </div>
+            }
+
+            @if (workout.Exercises.Count == 0)
+            {
+                <p class="text-muted small">Šioje treniruotėje dar nėra pratimų.</p>
+            }
+            else
+            {
+                <ol class="list-group list-group-numbered">
+                    @foreach (var e in workout.Exercises)
+                    {
+                        var ex = LibraryExercise(e.ExerciseId);
+                        @* Hovering a row shows that exercise's muscles on the body *@
+                        <HoverZone Tag="li" class="@($"list-group-item d-flex justify-content-between align-items-start {(program != null ? "entry-link" : "")}")"
+                                   Hover="hover" Primary="@(ex == null ? Array.Empty<string>() : new[] { ex.MuscleGroup })"
+                                   Secondary="@(ex?.SecondaryMuscleGroups ?? new List<string>())">
+                            @if (program != null)
+                            {
+                                <a href="@EntryUrl(e)" class="ms-2 me-auto entry-link">
+                                    <div class="fw-semibold">@e.ExerciseName</div>
+                                    <span class="small text-muted">@e.Sets × @e.Reps @(string.IsNullOrEmpty(e.Notes) ? "" : $"· {e.Notes}")</span>
+                                </a>
+                            }
+                            else
+                            {
+                                <a href="exercises/@e.ExerciseId" class="ms-2 me-auto entry-link">
+                                    <div class="fw-semibold">@e.ExerciseName</div>
+                                    <span class="small text-muted">@e.Sets × @e.Reps @(string.IsNullOrEmpty(e.Notes) ? "" : $"· {e.Notes}")</span>
+                                </a>
+                            }
+                            @if (canModify)
+                            {
+                                <button class="btn btn-sm btn-link text-danger p-0" title="Pašalinti" @onclick="() => AskRemoveExercise(e)">✕</button>
+                            }
+                        </HoverZone>
+                    }
+                </ol>
+            }
+
+            <!-- Ratings -->
+            <h2 class="section-title mt-5">Įvertinimai (@ratings.Count)</h2>
+
+            @if (Auth.IsAuthenticated && !mine && !HasRated)
+            {
+                <div class="card card-body mb-3">
+                    <EditForm Model="ratingDto" OnValidSubmit="SubmitRating">
+                        <div class="d-flex flex-wrap gap-2 align-items-center mb-2">
+                            @for (var i = 1; i <= 5; i++)
+                            {
+                                var score = i;
+                                <button type="button" class="btn btn-sm @(ratingDto.Score >= score ? "btn-warning" : "btn-outline-secondary")" @onclick="() => ratingDto.Score = score">★</button>
+                            }
+                            <span class="small text-muted">@ratingDto.Score / 5</span>
+                        </div>
+                        <InputText class="form-control form-control-sm mb-2" placeholder="Trumpas atsiliepimas (nebūtina)" @bind-Value="ratingDto.Review" />
+                        <button type="submit" class="btn btn-sm btn-warning">Įvertinti</button>
+                    </EditForm>
+                </div>
+            }
+
+            @if (ratings.Count == 0)
+            {
+                <p class="text-muted small">Dar niekas neįvertino.</p>
+            }
+            else
+            {
+                <ul class="list-unstyled">
+                    @foreach (var r in ratings)
+                    {
+                        <li class="border-bottom py-2">
+                            <span class="text-warning">@(new string('★', r.Score))</span><span class="text-muted">@(new string('★', 5 - r.Score))</span>
+                            <strong class="ms-1 small">@r.UserName</strong>
+                            @if (!string.IsNullOrWhiteSpace(r.Review))
+                            {
+                                <div class="small">@r.Review</div>
+                            }
+                        </li>
+                    }
+                </ul>
+            }
+
+        <!-- Comments -->
+        <div class="mt-5">
+            <h2 class="section-title">Komentarai (@comments.Count)</h2>
+
+            @if (Auth.IsAuthenticated)
+            {
+                <EditForm Model="commentDto" OnValidSubmit="SubmitComment" class="mb-3">
+                    <InputTextArea class="form-control mb-2" rows="2" placeholder="Parašykite komentarą..." @bind-Value="commentDto.Content" />
+                    <button type="submit" class="btn btn-sm btn-warning" disabled="@string.IsNullOrWhiteSpace(commentDto.Content)">Komentuoti</button>
+                </EditForm>
+            }
+            else
+            {
+                <p class="small"><a href="login">Prisijunkite</a>, kad galėtumėte komentuoti.</p>
+            }
+
+            @if (comments.Count == 0)
+            {
+                <p class="text-muted small">Komentarų dar nėra.</p>
+            }
+            else
+            {
+                @foreach (var c in comments)
+                {
+                    var myComment = Auth.Owns(c.UserId);
+                    <div class="card mb-2 @(myComment ? "mine" : "")">
+                        <div class="card-body py-2">
+                            <div class="d-flex justify-content-between align-items-center">
+                                <strong class="small">@(myComment ? "Jūs" : c.UserName)</strong>
+                                <div class="d-flex align-items-center gap-2">
+                                    <small class="text-muted">@c.CreatedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm")</small>
+                                    @if (Auth.CanModify(c.UserId))
+                                    {
+                                        <button class="btn btn-sm btn-link text-danger p-0" title="Ištrinti" @onclick="() => AskDeleteComment(c.Id)">✕</button>
+                                    }
+                                </div>
+                            </div>
+                            <div class="small mt-1" style="white-space: pre-wrap;">@c.Content</div>
+                        </div>
+                    </div>
+                }
+            }
+        </div>
+        </div>
+    </div>
+}
+
+<!-- Edit modal -->
+@if (editModel != null)
+{
+    <div class="modal d-block modal-animated" tabindex="-1" role="dialog" aria-modal="true" aria-labelledby="edit-workout-title">
+        <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="edit-workout-title">Redaguoti treniruotę</h5>
+                    <button type="button" class="btn-close" aria-label="Uždaryti" disabled="@saving" @onclick="() => editModel = null"></button>
+                </div>
+                <EditForm Model="editModel" OnValidSubmit="SaveEdit">
+                    <DataAnnotationsValidator />
+                    <div class="modal-body">
+                        @if (editError != null)
+                        {
+                            <div class="alert alert-danger py-2">@editError</div>
+                        }
+                        <ValidationSummary />
+
+                        <label class="form-label" for="edit-workout-name">Pavadinimas</label>
+                        <InputText id="edit-workout-name" class="form-control mb-3" @bind-Value="editModel.Title" />
+
+                        <label class="form-label" for="edit-workout-description">Aprašymas</label>
+                        <InputTextArea id="edit-workout-description" class="form-control mb-3" rows="3" @bind-Value="editModel.Description" />
+
+                        <label class="form-label" for="edit-workout-difficulty">Sudėtingumas</label>
+                        <InputSelect id="edit-workout-difficulty" class="form-select mb-3" @bind-Value="editModel.Difficulty">
+                            <option value="Beginner">Pradedantiesiems</option>
+                            <option value="Intermediate">Vidutinis</option>
+                            <option value="Advanced">Pažengusiems</option>
+                        </InputSelect>
+
+                        <fieldset>
+                            <legend class="form-label fs-6">Tikslinės raumenų grupės</legend>
+                            <div class="check-grid">
+                                @for (var i = 0; i < muscleOptions.Count; i++)
+                                {
+                                    var g = muscleOptions[i];
+                                    var id = $"edit-muscle-{i}";
+                                    <div class="form-check">
+                                        <input class="form-check-input" type="checkbox" id="@id"
+                                               checked="@editModel.TargetMuscleGroups.Contains(g)"
+                                               @onchange="e => ToggleTarget(g, e.Value is true)" />
+                                        <label class="form-check-label" for="@id">@g</label>
+                                    </div>
+                                }
+                            </div>
+                        </fieldset>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" disabled="@saving" @onclick="() => editModel = null">Atšaukti</button>
+                        <button type="submit" class="btn btn-warning" disabled="@saving">@(saving ? "Saugoma..." : "Išsaugoti")</button>
+                    </div>
+                </EditForm>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- Summary modal -->
+@if (summaryText != null)
+{
+    <div class="modal d-block modal-animated" tabindex="-1" role="dialog" aria-modal="true">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Suvestinė</h5>
+                    <button type="button" class="btn-close" @onclick="() => summaryText = null"></button>
+                </div>
+                <div class="modal-body">
+                    <pre class="summary">@summaryText</pre>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- Report modal -->
+@if (showReport)
+{
+    <div class="modal d-block modal-animated" tabindex="-1" role="dialog" aria-modal="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Pranešti apie „@workout?.Title“</h5>
+                    <button type="button" class="btn-close" @onclick="() => showReport = false"></button>
+                </div>
+                <EditForm Model="reportDto" OnValidSubmit="SubmitReport">
+                    <div class="modal-body">
+                        <p class="small text-muted">Administratoriai peržiūrės pranešimą ir imsis veiksmų.</p>
+                        <InputTextArea class="form-control" rows="4" placeholder="Kokias taisykles pažeidžia ši treniruotė? (bent 5 simboliai)" @bind-Value="reportDto.Reason" />
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" @onclick="() => showReport = false">Atšaukti</button>
+                        <button type="submit" class="btn btn-danger" disabled="@((reportDto.Reason?.Trim().Length ?? 0) < 5)">Pateikti</button>
+                    </div>
+                </EditForm>
+            </div>
+        </div>
+    </div>
+}
+
+<ConfirmModal @bind-Request="confirm" />
+
+@code {
+    private Confirmation? confirm;   // the "are you sure?" question shown in ConfirmModal
+
+    private void AskDeleteWorkout() =>
+        confirm = new("Ištrinti treniruotę?", $"„{workout!.Title}“ bus ištrinta visam laikui kartu su jos komentarais ir įvertinimais.", DeleteWorkout);
+
+    private void AskRemoveExercise(WorkoutExerciseItem e) =>
+        confirm = new("Pašalinti pratimą?", $"„{e.ExerciseName}“ bus pašalintas iš šios treniruotės.", () => RemoveExercise(e), "Pašalinti");
+
+    private void AskDeleteComment(string commentId) =>
+        confirm = new("Ištrinti komentarą?", "Komentaras bus ištrintas visam laikui.", () => DeleteComment(commentId));
+
+    // ---- Edit modal: title, description, difficulty and target muscles (exercises and days stay as they are) ----
+    private UpdateWorkoutDto? editModel;
+    private List<string> muscleOptions = new();
+    private string? editError;
+    private bool saving;
+
+    private async Task OpenEdit()
+    {
+        muscleOptions = await Categories.NamesAsync(CategoryTypes.MuscleGroup);
+        editError = null;
+        editModel = new UpdateWorkoutDto
+        {
+            Title = workout!.Title,
+            Description = workout.Description,
+            Difficulty = workout.Difficulty,
+            TargetMuscleGroups = workout.TargetMuscleGroups.ToList(),
+        };
+    }
+
+    private void ToggleTarget(string group, bool on)
+    {
+        editModel!.TargetMuscleGroups.Remove(group);
+        if (on) editModel.TargetMuscleGroups.Add(group);
+    }
+
+    private async Task SaveEdit()
+    {
+        saving = true;
+        var (ok, err) = await Api.UpdateWorkoutAsync(Id, editModel!);
+        saving = false;
+        if (!ok)
+        {
+            editError = err;
+            return;
+        }
+
+        editModel = null;
+        await LoadAll();
+        message = "Treniruotė atnaujinta.";
+    }
+    [Parameter] public string Id { get; set; } = string.Empty;
+
+    /// <summary>Set when opened as /programs/{ProgramId}/workouts/{Id}.</summary>
+    [Parameter] public string? ProgramId { get; set; }
+
+    private Workout? workout;
+    private List<Comment> comments = new();
+    private List<WorkoutRating> ratings = new();
+    private TrainingProgram? program;
+    private List<Exercise> allExercises = new();
+    private bool loading = true, showAddExercise, showReport;
+    private string? error, message, summaryText;
+
+    private CreateCommentDto commentDto = new();
+    private CreateRatingDto ratingDto = new() { Score = 5 };
+    private AddWorkoutExerciseDto addExerciseDto = new();
+    private CreateReportDto reportDto = new();
+
+    private bool HasRated => Auth.CurrentUser != null && ratings.Any(r => r.UserId == Auth.CurrentUser.Id);
+
+    protected override async Task OnParametersSetAsync()
+    {
+        loading = true;
+        await LoadAll();
+        loading = false;
+    }
+
+    private async Task LoadAll()
+    {
+        program = null;
+        if (!string.IsNullOrEmpty(ProgramId))
+        {
+            // Nested route: the API answers 404 if this workout isn't in that program.
+            workout = await Api.GetProgramWorkoutAsync(ProgramId, Id);
+            if (workout == null) return;
+            program = await Api.GetProgramAsync(ProgramId);
+        }
+        else
+        {
+            workout = await Api.GetWorkoutByIdAsync(Id);
+            if (workout == null) return;
+            if (!string.IsNullOrEmpty(workout.ProgramId))
+            {
+                // Part of a program: show it at its place in the hierarchy.
+                Nav.NavigateTo($"programs/{workout.ProgramId}/workouts/{workout.Id}", replace: true);
+                return;
+            }
+        }
+
+        var commentsTask = Api.GetWorkoutCommentsAsync(Id);
+        var ratingsTask = Api.GetWorkoutRatingsAsync(Id);
+        var libraryTask = Api.GetExercisesAsync();   // muscle groups of each exercise, for the body map
+        comments = await commentsTask;
+        ratings = await ratingsTask;
+        allExercises = await libraryTask;
+
+    }
+
+    private CreateCommentDto NewComment() => new()
+    {
+    };
+
+    private async Task SubmitComment()
+    {
+        var dto = NewComment();
+        dto.Content = commentDto.Content;
+        if (await Api.AddWorkoutCommentAsync(Id, dto))
+        {
+            commentDto = new();
+            comments = await Api.GetWorkoutCommentsAsync(Id);
+        }
+        else
+        {
+            error = "Nepavyko pridėti komentaro.";
+        }
+    }
+
+    private async Task DeleteComment(string commentId)
+    {
+        if (await Api.DeleteWorkoutCommentAsync(Id, commentId))
+        {
+            comments.RemoveAll(c => c.Id == commentId);
+        }
+        else
+        {
+            error = "Nepavyko ištrinti komentaro.";
+        }
+    }
+
+    private async Task SubmitRating()
+    {
+        ratingDto.UserId = Auth.CurrentUser?.Id ?? "";
+        ratingDto.UserName = Auth.CurrentUser?.Username ?? "";
+        if (await Api.AddRatingToWorkoutAsync(Id, ratingDto))
+        {
+            ratingDto = new() { Score = 5 };
+            message = "Ačiū už įvertinimą!";
+            await LoadAll();
+        }
+        else
+        {
+            error = "Nepavyko išsaugoti įvertinimo.";
+        }
+    }
+
+    private async Task ViewSummary() => summaryText = await Api.GetWorkoutSummaryTextAsync(Id);
+
+    // ---- Body map: the whole workout, or the exercise under the mouse ----
+    private readonly MuscleHover hover = new();
+
+    private Exercise? LibraryExercise(string id) => allExercises.FirstOrDefault(x => x.Id == id);
+
+    /// <summary>Other muscles its exercises work (main or secondary), not already a target of the workout.</summary>
+    private IReadOnlyCollection<string> OtherMuscles => (workout == null ? new List<string>() :
+        workout.Exercises
+            .Select(e => LibraryExercise(e.ExerciseId))
+            .Where(x => x != null)
+            .SelectMany(x => x!.SecondaryMuscleGroups.Append(x.MuscleGroup))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Where(g => !workout.TargetMuscleGroups.Contains(g, StringComparer.OrdinalIgnoreCase))
+            .ToList());
+
+
+
+    private async Task OpenAddExercise()
+    {
+        addExerciseDto = new() { Sets = 3, Reps = 10 };
+        allExercises = await Api.GetExercisesAsync();
+        showAddExercise = true;
+    }
+
+    private void OnExerciseSelected(ChangeEventArgs e)
+    {
+        var selected = allExercises.FirstOrDefault(x => x.Id == e.Value?.ToString());
+        addExerciseDto.ExerciseId = selected?.Id ?? "";
+        addExerciseDto.ExerciseName = selected?.Name ?? "";
+    }
+
+    private string EntryUrl(WorkoutExerciseItem e) => $"programs/{program!.Id}/workouts/{Id}/exercises/{e.Id}";
+
+    private async Task ReloadWorkout() =>
+        workout = program != null ? await Api.GetProgramWorkoutAsync(program.Id, Id) : await Api.GetWorkoutByIdAsync(Id);
+
+    private async Task SubmitAddExercise()
+    {
+        var (ok, err) = program != null
+            ? await Api.AddWorkoutEntryAsync(program.Id, Id, addExerciseDto)
+            : (await Api.AddExerciseToWorkoutAsync(Id, addExerciseDto), null);
+
+        if (ok)
+        {
+            showAddExercise = false;
+            await ReloadWorkout();
+        }
+        else
+        {
+            error = err ?? "Nepavyko pridėti pratimo.";
+        }
+    }
+
+    private async Task RemoveExercise(WorkoutExerciseItem e)
+    {
+        // In a program, remove exactly this entry; standalone workouts use the older route.
+        var ok = program != null
+            ? (await Api.DeleteWorkoutEntryAsync(program.Id, Id, e.Id)).Success
+            : await Api.RemoveExerciseFromWorkoutAsync(Id, e.ExerciseId);
+
+        if (ok)
+        {
+            await ReloadWorkout();
+        }
+        else
+        {
+            error = "Nepavyko pašalinti pratimo.";
+        }
+    }
+
+    private void OpenReport()
+    {
+        reportDto = new() { TargetType = "Workout", TargetId = Id, ReportedByUserId = Auth.CurrentUser?.Id ?? "" };
+        showReport = true;
+    }
+
+    private async Task SubmitReport()
+    {
+        if (await Api.CreateReportAsync(reportDto))
+        {
+            showReport = false;
+            message = "Pranešimas išsiųstas administratoriams. Ačiū!";
+        }
+        else
+        {
+            error = "Nepavyko pateikti pranešimo.";
+        }
+    }
+
+    private async Task DeleteWorkout()
+    {
+        if (await Api.DeleteWorkoutAsync(Id))
+        {
+            Nav.NavigateTo(program != null ? $"programs/{program.Id}" : "workouts");
+        }
+        else
+        {
+            error = "Nepavyko ištrinti treniruotės.";
+        }
+    }
+}

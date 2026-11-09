@@ -1,0 +1,324 @@
+@page "/create-workout"
+@attribute [Authorize]
+@inject ApiService Api
+@inject CustomAuthStateProvider Auth
+@inject CategoryStore Categories
+@inject NavigationManager Nav
+
+<PageTitle>Nauja treniruotė · Salė+</PageTitle>
+
+<div class="page-head">
+    <div>
+        <a href="workouts" class="small fw-semibold text-decoration-none">← Treniruotės</a>
+        <h1 class="mt-1">Nauja treniruotė</h1>
+    </div>
+</div>
+
+@if (!string.IsNullOrEmpty(error))
+{
+    <div class="alert alert-danger alert-dismissible">
+        @error
+        <button type="button" class="btn-close" @onclick="() => error = null"></button>
+    </div>
+}
+
+<div class="row g-4">
+    <!-- Left: details + chosen exercises -->
+    <div class="col-lg-7">
+        <div class="card mb-4">
+            <div class="card-body p-4">
+                <h2 class="section-title"><span class="step-num">1</span>Informacija</h2>
+
+                <div class="mb-3">
+                    <label class="form-label">Pavadinimas</label>
+                    <input class="form-control" placeholder="pvz. Viršutinė kūno dalis A" @bind="workoutDto.Title" @bind:event="oninput" />
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label">Aprašymas</label>
+                    <textarea class="form-control" rows="3" placeholder="Kam skirta ir ko tikėtis" @bind="workoutDto.Description" @bind:event="oninput"></textarea>
+                </div>
+
+                <div class="row g-3">
+                    <div class="col-sm-5">
+                        <label class="form-label">Sudėtingumas</label>
+                        <select class="form-select" @bind="workoutDto.Difficulty">
+                            <option value="Beginner">Pradedantiesiems</option>
+                            <option value="Intermediate">Vidutinis</option>
+                            <option value="Advanced">Pažengusiems</option>
+                        </select>
+                    </div>
+                    <div class="col-sm-7">
+                        <label class="form-label">Raumenų grupės</label>
+                        <div class="d-flex flex-wrap gap-1">
+                            @foreach (var g in availableGroups)
+                            {
+                                var on = selectedGroups.Contains(g);
+                                <button type="button" class="btn btn-sm @(on ? "btn-dark" : "btn-outline-secondary")" @onclick="() => ToggleGroup(g)">@g</button>
+                            }
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-body p-4">
+                <h2 class="section-title d-flex justify-content-between">
+                    <span><span class="step-num">2</span>Pratimai treniruotėje</span>
+                    <span class="meta fw-normal">@workoutDto.Exercises.Count</span>
+                </h2>
+
+                @if (workoutDto.Exercises.Count == 0)
+                {
+                    <div class="empty py-4">Pridėkite pratimų iš bibliotekos dešinėje arba sukurkite naują.</div>
+                }
+                else
+                {
+                    <ol class="list-unstyled mb-0">
+                        @for (var i = 0; i < workoutDto.Exercises.Count; i++)
+                        {
+                            var index = i;
+                            var item = workoutDto.Exercises[i];
+                            <li class="d-flex flex-wrap align-items-center gap-2 py-2 border-bottom">
+                                <span class="meta" style="width: 1.5rem;">@(index + 1).</span>
+                                <strong class="flex-grow-1">@item.ExerciseName</strong>
+                                <div class="d-flex align-items-center gap-1">
+                                    <input type="number" min="1" max="50" class="form-control form-control-sm num-input" title="Serijos" @bind="item.Sets" />
+                                    <span class="meta">×</span>
+                                    <input type="number" min="1" max="500" class="form-control form-control-sm num-input" title="Pakartojimai" @bind="item.Reps" />
+                                </div>
+                                <input class="form-control form-control-sm" style="max-width: 160px;" placeholder="Pastaba" @bind="item.Notes" />
+                                <div class="btn-group btn-group-sm">
+                                    <button type="button" class="btn btn-ghost" title="Aukštyn" disabled="@(index == 0)" @onclick="() => Move(index, -1)">↑</button>
+                                    <button type="button" class="btn btn-ghost" title="Žemyn" disabled="@(index == workoutDto.Exercises.Count - 1)" @onclick="() => Move(index, 1)">↓</button>
+                                    <button type="button" class="btn btn-ghost text-danger" title="Pašalinti" @onclick="() => workoutDto.Exercises.RemoveAt(index)">✕</button>
+                                </div>
+                            </li>
+                        }
+                    </ol>
+                    <p class="meta mt-2 mb-0">Serijos × pakartojimai</p>
+                }
+            </div>
+            <div class="card-footer d-flex justify-content-end gap-2 p-3">
+                <a href="workouts" class="btn btn-outline-secondary">Atšaukti</a>
+                <button type="button" class="btn btn-warning px-4" @onclick="HandleCreate" disabled="@(loading || !CanSubmit)">
+                    @(loading ? "Saugoma..." : "Paskelbti treniruotę")
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Right: library picker + new exercise -->
+    <div class="col-lg-5">
+        <div class="card position-sticky" style="top: 5rem;">
+            <div class="card-body p-4">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <h2 class="section-title mb-0">Pratimų biblioteka</h2>
+                    <button type="button" class="btn btn-sm @(showNewExercise ? "btn-outline-secondary" : "btn-dark")" @onclick="ToggleNewExercise">
+                        @(showNewExercise ? "Atšaukti" : "+ Naujas pratimas")
+                    </button>
+                </div>
+
+                @if (showNewExercise)
+                {
+                    <EditForm Model="newExercise" OnValidSubmit="CreateAndAddExercise" class="p-3 mb-3 rounded" style="background: var(--surface-2); border: 1px solid var(--line);">
+                        <DataAnnotationsValidator />
+                        <ValidationSummary />
+                        <div class="mb-2">
+                            <label class="form-label">Pavadinimas</label>
+                            <InputText class="form-control form-control-sm" @bind-Value="newExercise.Name" />
+                        </div>
+                        <div class="row g-2 mb-2">
+                            <div class="col-6">
+                                <label class="form-label">Raumenų grupė</label>
+                                <InputSelect class="form-select form-select-sm" @bind-Value="newExercise.MuscleGroup">
+                                    <option value="">Pasirinkite</option>
+                                    @foreach (var g in availableGroups)
+                                    {
+                                        <option value="@g">@g</option>
+                                    }
+                                </InputSelect>
+                            </div>
+                            <div class="col-6">
+                                <label class="form-label">Įranga</label>
+                                <InputSelect class="form-select form-select-sm" @bind-Value="newExercise.Equipment">
+                                    <option value="">Pasirinkite</option>
+                                    @foreach (var g in equipment)
+                                    {
+                                        <option value="@g">@g</option>
+                                    }
+                                </InputSelect>
+                            </div>
+                        </div>
+                        <div class="mb-2">
+                            <label class="form-label">Aprašymas</label>
+                            <InputTextArea class="form-control form-control-sm" rows="2" placeholder="Trumpai, kaip atlikti" @bind-Value="newExercise.Description" />
+                        </div>
+                        <div class="d-flex justify-content-between align-items-center">
+                            <span class="meta">Bus pridėtas į biblioteką ir šią treniruotę.</span>
+                            <button type="submit" class="btn btn-sm btn-warning" disabled="@creatingExercise">
+                                @(creatingExercise ? "Kuriama..." : "Sukurti ir pridėti")
+                            </button>
+                        </div>
+                    </EditForm>
+                }
+
+                <input class="form-control mb-2" placeholder="Ieškoti pratimo..." @bind="librarySearch" @bind:event="oninput" />
+                <div class="d-flex flex-wrap gap-1 mb-3">
+                    <button type="button" class="btn btn-sm @(libraryGroup == null ? "btn-dark" : "btn-outline-secondary")" @onclick="() => libraryGroup = null">Visi</button>
+                    @foreach (var g in availableGroups)
+                    {
+                        <button type="button" class="btn btn-sm @(libraryGroup == g ? "btn-dark" : "btn-outline-secondary")" @onclick="() => libraryGroup = g">@g</button>
+                    }
+                </div>
+
+                <div class="picker">
+                    @if (!FilteredLibrary.Any())
+                    {
+                        <div class="p-4 text-center meta">Nieko nerasta.</div>
+                    }
+                    @foreach (var ex in FilteredLibrary)
+                    {
+                        var count = workoutDto.Exercises.Count(e => e.ExerciseId == ex.Id);
+                        <div class="picker-row">
+                            <div class="flex-grow-1 min-w-0">
+                                <div class="fw-semibold text-truncate">@ex.Name</div>
+                                <div class="meta">
+                                    @ex.MuscleGroup<span class="dot">@ex.Equipment</span>
+                                    @if (ex.RatingCount > 0)
+                                    {
+                                        <span class="dot"><span class="text-warning">★</span> @ex.Rating.ToString("0.0")</span>
+                                    }
+                                </div>
+                            </div>
+                            <button type="button" class="btn btn-sm text-nowrap flex-shrink-0 @(count > 0 ? "btn-dark" : "btn-outline-secondary")" @onclick="() => AddExercise(ex)">
+                                @(count > 0 ? $"+ dar ({count})" : "+ Pridėti")
+                            </button>
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    private CreateWorkoutDto workoutDto = new() { Difficulty = "Intermediate" };
+    private List<Exercise> exercisesLibrary = new();
+    private HashSet<string> selectedGroups = new();
+    private List<string> availableGroups = new(), equipment = new();
+
+    private string? librarySearch, libraryGroup, error;
+    private bool loading, showNewExercise, creatingExercise;
+    private CreateExerciseDto newExercise = NewExerciseDto();
+
+    private bool CanSubmit => !string.IsNullOrWhiteSpace(workoutDto.Title) && !string.IsNullOrWhiteSpace(workoutDto.Description);
+
+    private IEnumerable<Exercise> FilteredLibrary => WorkoutSort.Apply(exercisesLibrary
+        .Where(e => libraryGroup == null || Text.SameLoose(e.MuscleGroup, libraryGroup))
+        .Where(e => string.IsNullOrWhiteSpace(librarySearch) || Text.ContainsLoose(e.Name, librarySearch)), WorkoutSort.Rating);
+
+    private static CreateExerciseDto NewExerciseDto() => new() { Difficulty = "Intermediate", Equipment = "" };
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            exercisesLibrary = await Api.GetExercisesAsync();
+            availableGroups = await Categories.NamesAsync(CategoryTypes.MuscleGroup);
+            equipment = await Categories.NamesAsync(CategoryTypes.Equipment);
+        }
+        catch (Exception ex)
+        {
+            error = $"Nepavyko užkrauti pratimų: {ex.Message}";
+        }
+    }
+
+    private void ToggleGroup(string group)
+    {
+        if (!selectedGroups.Remove(group)) selectedGroups.Add(group);
+    }
+
+    private void AddExercise(Exercise ex)
+    {
+        workoutDto.Exercises.Add(new WorkoutExerciseItem { ExerciseId = ex.Id, ExerciseName = ex.Name, Sets = 3, Reps = 10 });
+        var group = availableGroups.FirstOrDefault(g => Text.SameLoose(g, ex.MuscleGroup));
+        if (group != null) selectedGroups.Add(group);
+    }
+
+    private void Move(int index, int delta)
+    {
+        var target = index + delta;
+        if (target < 0 || target >= workoutDto.Exercises.Count) return;
+        (workoutDto.Exercises[index], workoutDto.Exercises[target]) = (workoutDto.Exercises[target], workoutDto.Exercises[index]);
+    }
+
+    private void ToggleNewExercise()
+    {
+        showNewExercise = !showNewExercise;
+        newExercise = NewExerciseDto();
+        if (showNewExercise && libraryGroup != null) newExercise.MuscleGroup = libraryGroup;
+    }
+
+    private async Task CreateAndAddExercise()
+    {
+        creatingExercise = true;
+
+        var (created, err) = await Api.CreateExerciseAndReturnAsync(newExercise);
+        creatingExercise = false;
+
+        if (created == null)
+        {
+            error = err;
+            return;
+        }
+
+        exercisesLibrary.Add(created);
+        AddExercise(created);
+        showNewExercise = false;
+        newExercise = NewExerciseDto();
+    }
+
+    private async Task HandleCreate()
+    {
+        error = null;
+        if (!CanSubmit)
+        {
+            error = "Įveskite pavadinimą ir aprašymą.";
+            return;
+        }
+
+        if (workoutDto.Exercises.Any(e => e.Sets is < 1 or > 50 || e.Reps is < 1 or > 500))
+        {
+            error = "Serijų turi būti 1–50, pakartojimų 1–500.";
+            return;
+        }
+
+        workoutDto.TargetMuscleGroups = selectedGroups.ToList();
+        if (Auth.CurrentUser != null)
+        {
+        }
+
+        loading = true;
+        try
+        {
+            if (await Api.CreateWorkoutAsync(workoutDto))
+            {
+                Nav.NavigateTo("workouts");
+            }
+            else
+            {
+                error = "Nepavyko sukurti treniruotės. Patikrinkite duomenis.";
+            }
+        }
+        catch (Exception ex)
+        {
+            error = $"Klaida: {ex.Message}";
+        }
+        finally
+        {
+            loading = false;
+        }
+    }
+}

@@ -1,0 +1,29 @@
+@* Read-only "which muscles does this train" card for detail pages: just the body. *@
+
+<section class="card muscle-card" aria-label="@Label">
+    <div class="card-body">
+        @if (Primary.Count == 0 && Secondary.Count == 0)
+        {
+            <p class="meta mb-0">Raumenų grupės nenurodytos.</p>
+        }
+        else
+        {
+            <MuscleMap Interactive="false" Pulse="false" Primary="Primary" Secondary="Secondary"
+                       Hover="Hover" MaxWidth="MaxWidth" />
+        }
+    </div>
+</section>
+
+@code {
+    /// <summary>The page item's muscles, drawn by default.</summary>
+    [Parameter] public IReadOnlyCollection<string> Primary { get; set; } = Array.Empty<string>();
+    [Parameter] public IReadOnlyCollection<string> Secondary { get; set; } = Array.Empty<string>();
+
+    /// <summary>A row under the mouse (e.g. one exercise of a workout, via HoverZone): drawn instead while set.</summary>
+    [Parameter] public MuscleHover? Hover { get; set; }
+
+    [Parameter] public int MaxWidth { get; set; } = 320;
+
+    // For screen readers only: the muscles as text.
+    private string Label => "Treniruojami raumenys: " + string.Join(", ", Primary.Concat(Secondary));
+}

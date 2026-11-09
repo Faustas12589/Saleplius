@@ -1,0 +1,51 @@
+@implements IDisposable
+@inject SavedStore Saved
+@inject CustomAuthStateProvider Auth
+
+@if (Auth.CanCreateContent)
+{
+    <button type="button"
+            class="btn btn-sm @(isSaved ? "btn-dark" : "btn-outline-secondary") @Class"
+            disabled="@busy"
+            title="@(isSaved ? "Pašalinti iš išsaugotų" : "Išsaugoti")"
+            @onclick="Toggle">
+        @(isSaved ? "Išsaugota" : "Išsaugoti")
+    </button>
+}
+
+@code {
+    /// <summary>A <see cref="SavedKind"/> value.</summary>
+    [Parameter, EditorRequired] public string Kind { get; set; } = SavedKind.Workouts;
+    [Parameter, EditorRequired] public string ItemId { get; set; } = string.Empty;
+    [Parameter] public string? Class { get; set; }
+
+    private bool isSaved, busy;
+
+    protected override void OnInitialized()
+    {
+        Saved.Changed += OnChanged;
+        Auth.AuthenticationStateChanged += OnAuthChanged;
+    }
+
+    protected override async Task OnParametersSetAsync() => await Refresh();
+
+    private async Task Refresh() => isSaved = Auth.IsAuthenticated && await Saved.IsSavedAsync(Kind, ItemId);
+
+    private async Task Toggle()
+    {
+        busy = true;
+        await Saved.ToggleAsync(Kind, ItemId);
+        await Refresh();
+        busy = false;
+    }
+
+    private void OnChanged() => InvokeAsync(async () => { await Refresh(); StateHasChanged(); });
+
+    private void OnAuthChanged(Task<AuthenticationState> _) => OnChanged();
+
+    public void Dispose()
+    {
+        Saved.Changed -= OnChanged;
+        Auth.AuthenticationStateChanged -= OnAuthChanged;
+    }
+}

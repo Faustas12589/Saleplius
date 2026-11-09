@@ -1,0 +1,227 @@
+@page "/create-program"
+@page "/programs/{Id}/edit"
+@attribute [Authorize]
+@inject ApiService Api
+@inject CustomAuthStateProvider Auth
+@inject CategoryStore Categories
+@inject NavigationManager Nav
+
+<PageTitle>@(IsEdit ? "Redaguoti programą" : "Nauja programa") · Salė+</PageTitle>
+
+<div class="page-head">
+    <div>
+        <a href="@(IsEdit ? $"programs/{Id}" : "programs")" class="small fw-semibold text-decoration-none">← @(IsEdit ? "Atgal į programą" : "Programos")</a>
+        <h1 class="mt-1">@(IsEdit ? "Redaguoti programą" : "Nauja programa")</h1>
+    </div>
+</div>
+
+@if (error != null)
+{
+    <div class="alert alert-danger alert-dismissible">
+        @error
+        <button type="button" class="btn-close" @onclick="() => error = null"></button>
+    </div>
+}
+
+@if (loading)
+{
+    <Loading />
+}
+else if (forbidden)
+{
+    <div class="empty">Galite redaguoti tik savo programas.</div>
+}
+else
+{
+    <div class="card mb-4">
+        <div class="card-body p-4">
+            <h2 class="section-title"><span class="step-num">1</span>Informacija</h2>
+            <div class="row g-3">
+                <div class="col-md-8">
+                    <label class="form-label">Pavadinimas</label>
+                    <input class="form-control" placeholder="pvz. 8 savaičių jėgos programa" @bind="title" @bind:event="oninput" />
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label">Tikslas</label>
+                    <select class="form-select" @bind="goal">
+                        @foreach (var g in goals)
+                        {
+                            <option value="@g">@g</option>
+                        }
+                    </select>
+                </div>
+                <div class="col-12">
+                    <label class="form-label">Aprašymas</label>
+                    <textarea class="form-control" rows="2" placeholder="Kam skirta programa ir ko tikėtis" @bind="description" @bind:event="oninput"></textarea>
+                </div>
+                <div class="col-sm-6 col-md-4">
+                    <label class="form-label">Sudėtingumas</label>
+                    <select class="form-select" @bind="difficulty">
+                        <option value="Beginner">Pradedantiesiems</option>
+                        <option value="Intermediate">Vidutinis</option>
+                        <option value="Advanced">Pažengusiems</option>
+                    </select>
+                </div>
+                <div class="col-sm-6 col-md-4">
+                    <label class="form-label">Trukmė (savaitėmis)</label>
+                    <input type="number" min="1" max="52" class="form-control" @bind="durationWeeks" />
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-body p-4">
+            <h2 class="section-title d-flex justify-content-between">
+                <span><span class="step-num">2</span>Savaitės tvarkaraštis</span>
+                <span class="meta fw-normal">@Text.Plural(schedule.Select(s => s.Day).Distinct().Count(), "treniruočių diena", "treniruočių dienos", "treniruočių dienų")</span>
+            </h2>
+            <p class="meta mb-3">Kiekvienai dienai pasirinkite savo treniruotes. Treniruotė gali priklausyti tik vienai programai. Tuščia diena reiškia poilsį.</p>
+
+            <div class="schedule">
+                @for (var d = 1; d <= 7; d++)
+                {
+                    var day = d;
+                    var items = schedule.Where(s => s.Day == day).ToList();
+                    <div class="schedule-row editing @(items.Count == 0 ? "rest" : "")">
+                        <div class="schedule-day">@ProgramText.Day(day)</div>
+                        <div class="schedule-items">
+                            @if (items.Count == 0)
+                            {
+                                <span>Poilsis</span>
+                            }
+                            @foreach (var item in items)
+                            {
+                                <div class="schedule-item">
+                                    <span class="title">@item.WorkoutTitle</span>
+                                    <button type="button" class="btn btn-sm btn-ghost text-danger ms-auto" title="Pašalinti" @onclick="() => schedule.Remove(item)">✕</button>
+                                </div>
+                            }
+                        </div>
+                        @* Re-keyed after each pick so the dropdown resets to its placeholder. *@
+                        <select @key="pickerVersion" class="form-select form-select-sm schedule-add" @onchange="e => AddToDay(day, e.Value?.ToString())">
+                            <option value="">+ Pridėti treniruotę</option>
+                            @foreach (var w in WorkoutChoices)
+                            {
+                                <option value="@w.Id">@w.Title</option>
+                            }
+                        </select>
+                    </div>
+                }
+            </div>
+
+            @if (!workoutsLibrary.Any())
+            {
+                <p class="meta mt-3 mb-0">Treniruočių dar nėra. <a href="create-workout">Sukurkite pirmąją</a>.</p>
+            }
+        </div>
+        <div class="card-footer d-flex justify-content-end gap-2 p-3">
+            <a href="@(IsEdit ? $"programs/{Id}" : "programs")" class="btn btn-outline-secondary">Atšaukti</a>
+            <button type="button" class="btn btn-warning px-4" disabled="@(saving || !CanSubmit)" @onclick="Save">
+                @(saving ? "Saugoma..." : IsEdit ? "Išsaugoti pakeitimus" : "Paskelbti programą")
+            </button>
+        </div>
+    </div>
+}
+
+@code {
+    private List<string> goals = new();
+    [Parameter] public string? Id { get; set; }
+
+    private bool IsEdit => !string.IsNullOrEmpty(Id);
+
+    private string title = "", description = "", goal = "Bendras", difficulty = "Intermediate";
+    private int durationWeeks = 4;
+    private List<ProgramWorkoutItem> schedule = new();
+    private List<Workout> workoutsLibrary = new();
+    private int pickerVersion;
+    private bool loading = true, saving, forbidden;
+    private string? error;
+
+    private bool CanSubmit => title.Trim().Length >= 2 && !string.IsNullOrWhiteSpace(description) && durationWeeks is >= 1 and <= 52;
+
+    /// <summary>Your own workouts first, then the best rated.</summary>
+    /// <summary>
+    /// A workout belongs to one program at a time, so only offer your own workouts that are
+    /// free or already in this program (the API answers 403/409 otherwise).
+    /// </summary>
+    private IEnumerable<Workout> WorkoutChoices => workoutsLibrary
+        .Where(w => Auth.CanModify(w.CreatedByUserId))
+        .Where(w => string.IsNullOrEmpty(w.ProgramId) || w.ProgramId == Id)
+        .OrderByDescending(w => w.AverageRating)
+        .ThenBy(w => w.Title, StringComparer.CurrentCultureIgnoreCase);
+
+    protected override async Task OnParametersSetAsync()
+    {
+        loading = true;
+        try
+        {
+            workoutsLibrary = await Api.GetWorkoutsAsync();
+            goals = await Categories.NamesAsync(CategoryTypes.Goal);
+
+            if (IsEdit)
+            {
+                var program = await Api.GetProgramAsync(Id!);
+                if (program == null)
+                {
+                    Nav.NavigateTo("programs");
+                    return;
+                }
+
+                forbidden = !Auth.CanModify(program.CreatedByUserId);
+                title = program.Title;
+                description = program.Description;
+                goal = program.Goal;
+                difficulty = program.Difficulty;
+                durationWeeks = program.DurationWeeks;
+                schedule = program.Workouts;
+            }
+        }
+        catch (Exception ex)
+        {
+            error = $"Nepavyko užkrauti duomenų: {ex.Message}";
+        }
+        finally
+        {
+            loading = false;
+        }
+    }
+
+    private void AddToDay(int day, string? workoutId)
+    {
+        var workout = workoutsLibrary.FirstOrDefault(w => w.Id == workoutId);
+        if (workout != null && !schedule.Any(s => s.Day == day && s.WorkoutId == workout.Id))
+        {
+            schedule.Add(new ProgramWorkoutItem { WorkoutId = workout.Id, WorkoutTitle = workout.Title, Day = day });
+        }
+        pickerVersion++;
+    }
+
+    private async Task Save()
+    {
+        error = null;
+        saving = true;
+
+        var (program, err) = IsEdit
+            ? await Api.UpdateProgramAsync(Id!, new UpdateProgramDto
+            {
+                Title = title.Trim(), Description = description.Trim(), Goal = goal,
+                Difficulty = difficulty, DurationWeeks = durationWeeks, Workouts = schedule
+            })
+            : await Api.CreateProgramAsync(new CreateProgramDto
+            {
+                Title = title.Trim(), Description = description.Trim(), Goal = goal,
+                Difficulty = difficulty, DurationWeeks = durationWeeks, Workouts = schedule
+            });
+
+        saving = false;
+        if (program != null)
+        {
+            Nav.NavigateTo($"programs/{program.Id}");
+        }
+        else
+        {
+            error = err;
+        }
+    }
+}

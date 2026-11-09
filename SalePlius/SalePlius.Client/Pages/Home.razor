@@ -1,0 +1,105 @@
+@page "/"
+@inject ApiService Api
+@inject CustomAuthStateProvider Auth
+
+<PageTitle>Salė+</PageTitle>
+
+<section class="intro">
+    <div>
+        <div class="eyebrow mb-2">Treniruočių biblioteka</div>
+        <h1>Treniruokis pagal planą,<br />ne iš atminties.</h1>
+        <p>Rask bendruomenės sudarytas programas, susikurk savo ir sek, kas tau tinka.</p>
+        <div class="d-flex flex-wrap gap-2 mt-4">
+            <a class="btn btn-warning px-4" href="programs">Naršyti programas</a>
+            <AuthorizeView>
+                <Authorized>
+                    <a class="btn btn-outline-dark px-4" href="create-workout">Sukurti savo</a>
+                </Authorized>
+                <NotAuthorized>
+                    <a class="btn btn-outline-dark px-4" href="login">Prisijungti</a>
+                </NotAuthorized>
+            </AuthorizeView>
+        </div>
+    </div>
+
+    @if (workouts != null && exercises != null)
+    {
+        <dl class="stats">
+            <div><dt>@programs.Count</dt><dd>programų</dd></div>
+            <div><dt>@workouts.Count</dt><dd>treniruočių</dd></div>
+            <div><dt>@exercises.Count</dt><dd>pratimų</dd></div>
+            <div><dt>@workouts.Sum(w => w.RatingsCount)</dt><dd>įvertinimų</dd></div>
+        </dl>
+    }
+</section>
+
+@if (error != null)
+{
+    <div class="alert alert-danger">@error</div>
+}
+else if (workouts == null)
+{
+    <Loading />
+}
+else
+{
+    @if (programs.Count > 0)
+    {
+        <div class="d-flex justify-content-between align-items-baseline mb-3">
+            <h2 class="section-title mb-0">Programos</h2>
+            <a href="programs" class="small fw-semibold">Visos programos</a>
+        </div>
+        <div class="row g-3 mb-5">
+            @foreach (var p in programs.Take(3))
+            {
+                <div class="col-md-6 col-lg-4">
+                    <ProgramCard Program="p" />
+                </div>
+            }
+        </div>
+    }
+
+    <div class="d-flex justify-content-between align-items-baseline mb-3">
+        <h2 class="section-title mb-0">Geriausiai įvertintos treniruotės</h2>
+        <a href="workouts" class="small fw-semibold">Visos treniruotės</a>
+    </div>
+
+    @if (topWorkouts.Count == 0)
+    {
+        <div class="empty">Treniruočių dar nėra.</div>
+    }
+    else
+    {
+        <div class="row g-3">
+            @foreach (var w in topWorkouts)
+            {
+                <div class="col-md-6 col-lg-4">
+                    <WorkoutCard Workout="w" />
+                </div>
+            }
+        </div>
+    }
+}
+
+@code {
+    private List<Exercise>? exercises;
+    private List<Workout>? workouts;
+    private List<Workout> topWorkouts = new();
+    private List<TrainingProgram> programs = new();
+    private string? error;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            exercises = await Api.GetExercisesAsync();
+            workouts = await Api.GetWorkoutsAsync();
+            programs = await Api.GetProgramsAsync();
+            topWorkouts = WorkoutSort.Apply(workouts, WorkoutSort.Rating).Take(6).ToList();
+        }
+        catch (Exception ex)
+        {
+            error = $"Nepavyko pasiekti API: {ex.Message}";
+        }
+    }
+}

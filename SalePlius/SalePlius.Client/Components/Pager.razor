@@ -1,0 +1,24 @@
+@* Page navigation driven by the API's hypermedia links: buttons only exist when the
+   response contains "prev"/"next", and clicking one requests exactly that link. *@
+@if (Page != null && Page.TotalPages > 1)
+{
+    <nav class="pager" aria-label="Puslapiai">
+        <button class="btn btn-sm btn-outline-secondary" disabled="@(!Page.Links.Has("prev"))"
+                @onclick="() => Go(Page.Links.Href(prev))">← Ankstesnis</button>
+        <span class="meta">@Page.Page / @Page.TotalPages <span class="d-none d-sm-inline">· iš viso @Page.TotalCount</span></span>
+        <button class="btn btn-sm btn-outline-secondary" disabled="@(!Page.Links.Has("next"))"
+                @onclick="() => Go(Page.Links.Href(next))">Kitas →</button>
+    </nav>
+}
+
+@code {
+    private const string prev = "prev", next = "next";
+
+    /// <summary>The current page (any item type).</summary>
+    [Parameter] public IPageInfo? Page { get; set; }
+
+    /// <summary>Called with the link URL to load.</summary>
+    [Parameter] public EventCallback<string> OnNavigate { get; set; }
+
+    private Task Go(string? href) => href == null ? Task.CompletedTask : OnNavigate.InvokeAsync(href);
+}

@@ -1,0 +1,21 @@
+# Only the API and Shared projects are needed to build the API image.
+**/bin/
+**/obj/
+**/.vs/
+**/.vscode/
+**/*.user
+**/node_modules/
+.git/
+.gitignore
+
+# Never send secrets or local settings into an image
+**/*firebase-adminsdk*.json
+**/secrets.json
+**/appsettings.Development.json
+
+# Not part of the API
+SalePlius/SalePlius.Client/
+SalePlius/img/
+SalePlius/*.postman_collection.json
+*.pdf
+*.md

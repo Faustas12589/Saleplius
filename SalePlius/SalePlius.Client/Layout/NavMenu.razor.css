@@ -1,0 +1,60 @@
+.mainnav {
+    display: flex;
+    gap: .25rem;
+}
+
+.mainnav ::deep a {
+    display: inline-flex;
+    align-items: center;
+    gap: .45rem;
+    color: var(--ink-2);
+    text-decoration: none;
+    font-weight: 600;
+    font-size: .92rem;
+    padding: .4rem .75rem;
+    border-radius: 8px;
+    white-space: nowrap;
+    transition: background-color .12s ease, color .12s ease;
+}
+
+.mainnav ::deep .icon {
+    flex: none;
+    color: var(--ink-3);
+    transition: color .12s ease;
+}
+
+.mainnav ::deep a:hover {
+    color: var(--ink);
+    background: #eceae3;
+}
+
+.mainnav ::deep a.active {
+    color: var(--ink);
+    background: #e6e3db;
+}
+
+.mainnav ::deep a:hover .icon,
+.mainnav ::deep a.active .icon {
+    color: var(--accent);
+}
+
+/* Medium screens: icons only would be cryptic, so keep labels but tighten spacing */
+@media (min-width: 768px) and (max-width: 1099.98px) {
+    .mainnav ::deep a {
+        padding: .4rem .55rem;
+        gap: .35rem;
+    }
+}
+
+/* Phones: a vertical list inside the hamburger panel */
+@media (max-width: 767.98px) {
+    .mainnav {
+        flex-direction: column;
+        gap: .15rem;
+    }
+
+    .mainnav ::deep a {
+        padding: .65rem .75rem;
+        font-size: 1rem;
+    }
+}

@@ -1,0 +1,115 @@
+@page "/exercises/{Id}"
+@inject ApiService Api
+@inject CustomAuthStateProvider Auth
+
+<PageTitle>@(exercise?.Name ?? "Pratimas") · Salė+</PageTitle>
+
+<a href="exercises" class="small fw-semibold text-decoration-none">← Pratimai</a>
+
+@if (loading)
+{
+    <Loading Class="mt-3" />
+}
+else if (exercise == null)
+{
+    <div class="empty mt-3">Pratimas nerastas. Galbūt jis buvo ištrintas.</div>
+}
+else
+{
+    var mine = Auth.Owns(exercise.CreatedByUserId);
+
+    <header class="mt-2 mb-4 pb-4" style="border-bottom: 1px solid var(--line);">
+        <div class="d-flex flex-wrap justify-content-between align-items-start gap-3">
+            <div style="max-width: 46rem;">
+                <div class="eyebrow mb-2">Pratimas · @exercise.MuscleGroup</div>
+                <h1 class="mb-2" style="font-size: clamp(1.7rem, 3vw, 2.4rem); font-weight: 800;">@exercise.Name</h1>
+                <div class="meta mb-3">
+                    @if (mine)
+                    {
+                        <span class="badge badge-mine">Mano</span>
+                    }
+                    else
+                    {
+                        <a href="profile/@exercise.CreatedByUserId">@exercise.CreatedByUserName</a>
+                    }
+                    <span class="dot">@WorkoutCard.DifficultyLt(exercise.Difficulty)</span>
+                    <span class="dot">@exercise.Equipment</span>
+                </div>
+                <SaveButton Kind="@SavedKind.Exercises" ItemId="@exercise.Id" />
+            </div>
+
+            @if (exercise.RatingCount > 0)
+            {
+                <div class="text-end">
+                    <div class="rating" style="font-size: 1.6rem;"><span class="star">★</span> @exercise.Rating.ToString("0.0")</div>
+                    <div class="meta">@Text.Plural(exercise.RatingCount, "įvertinimas", "įvertinimai", "įvertinimų")</div>
+                </div>
+            }
+        </div>
+    </header>
+
+    <div class="row g-4">
+        <!-- Muscles: right column on large screens, first on phones -->
+        <div class="col-lg-5 order-lg-2">
+            <MuscleCard Primary="@(new[] { exercise.MuscleGroup })" Secondary="exercise.SecondaryMuscleGroups" MaxWidth="360" />
+        </div>
+
+        <div class="col-lg-7">
+            <h2 class="section-title">Aprašymas</h2>
+            <p style="color: var(--ink-2); font-size: 1.05rem;">@exercise.Description</p>
+
+            @if (!string.IsNullOrWhiteSpace(exercise.Instructions))
+            {
+                <h2 class="section-title mt-4">Kaip atlikti</h2>
+                <p>@exercise.Instructions</p>
+            }
+
+            <h2 class="section-title mt-4">Naudojama treniruotėse (@usedIn.Count)</h2>
+            @if (usedIn.Count == 0)
+            {
+                <p class="meta">Šis pratimas dar neįtrauktas į jokią treniruotę.</p>
+            }
+            else
+            {
+                <ul class="list-group">
+                    @foreach (var (workout, entry) in usedIn)
+                    {
+                        <li class="list-group-item entry-link">
+                            <a href="@EntryHref(workout, entry)" class="d-flex justify-content-between align-items-center gap-3 entry-link">
+                                <span class="fw-semibold">@workout.Title</span>
+                                <span class="small text-muted text-nowrap">@entry.Sets × @entry.Reps</span>
+                            </a>
+                        </li>
+                    }
+                </ul>
+            }
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public string Id { get; set; } = string.Empty;
+
+    private Exercise? exercise;
+    private List<(Workout Workout, WorkoutExerciseItem Entry)> usedIn = new();
+    private bool loading = true;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        loading = true;
+        exercise = await Api.GetExerciseAsync(Id);
+        if (exercise != null)
+        {
+            var workouts = await Api.GetWorkoutsAsync();
+            usedIn = workouts
+                .SelectMany(w => w.Exercises.Where(e => e.ExerciseId == Id).Take(1).Select(e => (w, e)))
+                .OrderBy(x => x.w.Title)
+                .ToList();
+        }
+        loading = false;
+    }
+
+    /// <summary>Inside a program: link straight to the exercise entry. Otherwise to the workout.</summary>
+    private static string EntryHref(Workout w, WorkoutExerciseItem e) =>
+        string.IsNullOrEmpty(w.ProgramId) ? $"workouts/{w.Id}" : $"programs/{w.ProgramId}/workouts/{w.Id}/exercises/{e.Id}";
+}

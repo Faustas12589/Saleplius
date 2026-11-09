@@ -1,0 +1,468 @@
+@page "/tickets"
+@attribute [Authorize]
+@inject ApiService Api
+@inject CustomAuthStateProvider Auth
+@inject NavigationManager Nav
+
+<PageTitle>Bilietai ir pranešimai (Admin) · Salė+</PageTitle>
+
+@if (!Auth.IsAdmin)
+{
+    <div class="alert alert-danger m-4">
+        <h4>Prieiga uždrausta</h4>
+        <p>Šis puslapis skirtas tik sistemos administratoriams. Jūs neturite reikiamų teisių peržiūrėti bilietus.</p>
+        <a href="workouts" class="btn btn-primary">Grįžti į treniruotes</a>
+    </div>
+}
+else
+{
+    <div class="page-head">
+        <div>
+            <h1>Pranešimai</h1>
+            <p>Naudotojų pranešimai apie taisyklių pažeidimus.</p>
+        </div>
+        <button class="btn btn-outline-secondary" @onclick="() => showCreateModal = true">Naujas pranešimas</button>
+    </div>
+
+    @if (!string.IsNullOrEmpty(error))
+    {
+        <div class="alert alert-danger alert-dismissible fade show">
+            @error
+            <button type="button" class="btn-close" @onclick="() => error = null"></button>
+        </div>
+    }
+
+    @if (!string.IsNullOrEmpty(message))
+    {
+        <div class="alert alert-success alert-dismissible fade show">
+            @message
+            <button type="button" class="btn-close" @onclick="() => message = null"></button>
+        </div>
+    }
+
+    <div class="segmented mb-4 flex-wrap">
+        @foreach (var (value, label) in StatusFilters)
+        {
+            <button class="@(selectedStatus == value ? "active" : "")" @onclick="() => FilterByStatus(value)">@label</button>
+        }
+    </div>
+
+    @if (loading)
+    {
+        <Loading />
+    }
+    else if (reports == null || reports.Count == 0)
+    {
+        <div class="empty">Pranešimų pagal šį filtrą nėra.</div>
+    }
+    else
+    {
+        <div class="row g-3">
+            @foreach (var ticket in reports)
+            {
+                <div class="col-md-6">
+                    <div class="card h-100">
+                        <div class="card-header d-flex justify-content-between align-items-center py-2">
+                            <div>
+                                <span class="badge @GetStatusBadgeClass(ticket.Status)">@StatusLt(ticket.Status)</span>
+                                <span class="chip ms-1">@TargetLt(ticket.TargetType)</span>
+                            </div>
+                            <small class="text-muted">@ticket.CreatedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm")</small>
+                        </div>
+                        <div class="card-body">
+                            <p class="mb-3" style="font-size: 1.02rem;">„@ticket.Reason“</p>
+
+                            @{ var target = Describe(ticket); }
+                            <dl class="ticket-facts small mb-0">
+                                <dt>Objektas</dt>
+                                <dd>
+                                    @if (target.Link != null)
+                                    {
+                                        <a href="@target.Link">@target.Title</a>
+                                    }
+                                    else
+                                    {
+                                        <span class="text-muted">@target.Title</span>
+                                    }
+                                </dd>
+                                <dt>Autorius</dt>
+                                <dd>
+                                    @if (target.OwnerId != null && users.ContainsKey(target.OwnerId))
+                                    {
+                                        <a href="users?focus=@target.OwnerId">@UserName(target.OwnerId)</a>
+                                        var count = ReportsAgainst(target.OwnerId);
+                                        @if (count > 1)
+                                        {
+                                            <span class="badge bg-danger ms-1">@Text.Plural(count, "pranešimas", "pranešimai", "pranešimų")</span>
+                                        }
+                                    }
+                                    else
+                                    {
+                                        <span class="text-muted">@(target.OwnerName ?? "nežinomas")</span>
+                                    }
+                                </dd>
+                                <dt>Pranešė</dt>
+                                <dd>@UserName(ticket.ReportedByUserId)</dd>
+                            </dl>
+                            <div class="small text-muted">
+                                @if (ticket.ResolvedAt.HasValue)
+                                {
+                                    <div class="text-success mt-1">
+                                        <strong>Išspręsta:</strong> @ticket.ResolvedAt.Value.ToLocalTime().ToString("yyyy-MM-dd HH:mm")
+                                    </div>
+                                }
+                            </div>
+                        </div>
+
+                        <!-- Admin Actions Footer -->
+                        <div class="card-footer py-3">
+                            <div class="d-flex flex-wrap gap-2">
+                                <button class="btn btn-sm btn-outline-secondary" @onclick="() => InspectTicket(ticket)">
+                                    Išsamiau
+                                </button>
+
+                                @if (ticket.TargetType == "Workout" && workoutsById.ContainsKey(ticket.TargetId))
+                                {
+                                    <a class="btn btn-sm btn-outline-dark" href="workouts/@ticket.TargetId">Atidaryti treniruotę</a>
+                                    @if (ticket.Status != "Resolved")
+                                    {
+                                        <button class="btn btn-sm btn-danger" @onclick="() => AskRemoveWorkout(ticket)">
+                                            Pašalinti treniruotę
+                                        </button>
+                                    }
+                                }
+
+                                @if (ticket.Status != "Reviewed")
+                                {
+                                    <button class="btn btn-sm btn-outline-primary" @onclick='() => ChangeStatus(ticket.Id, "Reviewed")'>
+                                        Peržiūrėta
+                                    </button>
+                                }
+
+                                @if (ticket.Status != "Resolved")
+                                {
+                                    <button class="btn btn-sm btn-success" @onclick='() => ChangeStatus(ticket.Id, "Resolved")'>
+                                        Išspręsti
+                                    </button>
+                                }
+
+                                @if (ticket.Status != "Dismissed")
+                                {
+                                    <button class="btn btn-sm btn-outline-secondary" @onclick='() => ChangeStatus(ticket.Id, "Dismissed")'>
+                                        Atmesti
+                                    </button>
+                                }
+
+                                @if (ticket.Status != "Pending")
+                                {
+                                    <button class="btn btn-sm btn-ghost" @onclick='() => ChangeStatus(ticket.Id, "Pending")'>
+                                        Grąžinti į laukiančius
+                                    </button>
+                                }
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            }
+        </div>
+    }
+}
+
+<!-- Inspect Details Modal -->
+@if (inspectedTicket != null)
+{
+    <div class="modal d-block modal-animated" tabindex="-1" role="dialog" aria-modal="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header bg-dark text-white">
+                    <h5 class="modal-title">Bilieto informacija: @inspectedTicket.Id</h5>
+                    <button type="button" class="btn-close btn-close-white" @onclick="() => inspectedTicket = null"></button>
+                </div>
+                <div class="modal-body">
+                    <dl class="row mb-0">
+                        <dt class="col-sm-4">Būsena:</dt>
+                        <dd class="col-sm-8"><span class="badge @GetStatusBadgeClass(inspectedTicket.Status)">@inspectedTicket.Status</span></dd>
+
+                        <dt class="col-sm-4">Objekto tipas:</dt>
+                        <dd class="col-sm-8">@inspectedTicket.TargetType</dd>
+
+                        <dt class="col-sm-4">Objekto ID:</dt>
+                        <dd class="col-sm-8"><code>@inspectedTicket.TargetId</code></dd>
+
+                        <dt class="col-sm-4">Pranešėjas ID:</dt>
+                        <dd class="col-sm-8"><code>@inspectedTicket.ReportedByUserId</code></dd>
+
+                        <dt class="col-sm-4">Pateikta data:</dt>
+                        <dd class="col-sm-8">@inspectedTicket.CreatedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss")</dd>
+
+                        @if (inspectedTicket.ResolvedAt.HasValue)
+                        {
+                            <dt class="col-sm-4">Išspręsta:</dt>
+                            <dd class="col-sm-8 text-success">@inspectedTicket.ResolvedAt.Value.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss")</dd>
+                        }
+
+                        <dt class="col-sm-4">Priežastis:</dt>
+                        <dd class="col-sm-8 bg-light p-2 rounded">@inspectedTicket.Reason</dd>
+                    </dl>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" @onclick="() => inspectedTicket = null">Uždaryti</button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- Create Report Modal -->
+@if (showCreateModal)
+{
+    <div class="modal d-block modal-animated" tabindex="-1" role="dialog" aria-modal="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header bg-warning">
+                    <h5 class="modal-title fw-bold">Naujo pranešimo / bilieto pateikimas</h5>
+                    <button type="button" class="btn-close" @onclick="() => showCreateModal = false"></button>
+                </div>
+                <div class="modal-body">
+                    <EditForm Model="newReportDto" OnValidSubmit="HandleCreateReport">
+                        <DataAnnotationsValidator />
+                        <ValidationSummary />
+
+                        <div class="mb-3">
+                            <label class="form-label">Objekto tipas (TargetType):</label>
+                            <InputSelect class="form-select" @bind-Value="newReportDto.TargetType">
+                                <option value="Exercise">Pratimas (Exercise)</option>
+                                <option value="Workout">Treniruotė (Workout)</option>
+                                <option value="Comment">Komentaras (Comment)</option>
+                                <option value="User">Vartotojas (User)</option>
+                            </InputSelect>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label">Objekto ID (TargetId):</label>
+                            <InputText class="form-control" placeholder="pvz. ex-1 arba vartotojo ID" @bind-Value="newReportDto.TargetId" />
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label">Nusižengimo priežastis / paaiškinimas:</label>
+                            <InputTextArea class="form-control" rows="3" placeholder="Išsamiai paaiškinkite, kokios taisyklės buvo pažeistos..." @bind-Value="newReportDto.Reason" />
+                        </div>
+
+                        <div class="d-flex justify-content-end gap-2">
+                            <button type="button" class="btn btn-secondary" @onclick="() => showCreateModal = false">Atšaukti</button>
+                            <button type="submit" class="btn btn-warning fw-bold">Pateikti bilietą</button>
+                        </div>
+                    </EditForm>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+<ConfirmModal @bind-Request="confirm" />
+
+@code {
+    private Confirmation? confirm;   // the "are you sure?" question shown in ConfirmModal
+
+    private void AskRemoveWorkout(ViolationReport ticket) =>
+        confirm = new("Pašalinti treniruotę?", "Pažeidžianti treniruotė bus ištrinta, o pranešimas pažymėtas kaip išspręstas.", () => RemoveWorkoutAndResolve(ticket), "Pašalinti");
+    private List<ViolationReport>? reports;
+    private string? selectedStatus;
+    private bool loading = true;
+    private string? error;
+    private string? message;
+
+    private ViolationReport? inspectedTicket;
+    private bool showCreateModal = false;
+    private CreateReportDto newReportDto = new()
+    {
+        TargetType = "Workout",
+        TargetId = "sample-target-1",
+        Reason = "Klaidinanti arba pavojinga pratimo informacija."
+    };
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadTickets();
+    }
+
+    private async Task LoadTickets()
+    {
+        loading = true;
+        error = null;
+        try
+        {
+            reports = await Api.GetReportsAsync(selectedStatus);
+            await LoadLookups();
+        }
+        catch (Exception ex)
+        {
+            error = $"Nepavyko gauti pranešimų: {ex.Message}";
+            reports = [];
+        }
+        finally
+        {
+            loading = false;
+        }
+    }
+
+    // ---- Lookups so tickets show names instead of raw IDs ----
+    private Dictionary<string, UserProfile> users = new();
+    private Dictionary<string, Workout> workoutsById = new();
+    private Dictionary<string, Exercise> exercisesById = new();
+    private Dictionary<string, TrainingProgram> programsById = new();
+    private List<ViolationReport> allReports = new();
+
+    private async Task LoadLookups()
+    {
+        var usersTask = Api.GetUsersAsync();
+        var workoutsTask = Api.GetWorkoutsAsync();
+        var exercisesTask = Api.GetExercisesAsync();
+        var programsTask = Api.GetProgramsAsync();
+        var allTask = selectedStatus == null ? Task.FromResult(reports ?? []) : Api.GetReportsAsync();
+        users = (await usersTask).ToDictionary(u => u.Id);
+        workoutsById = (await workoutsTask).ToDictionary(w => w.Id);
+        exercisesById = (await exercisesTask).ToDictionary(e => e.Id);
+        programsById = (await programsTask).ToDictionary(p => p.Id);
+        allReports = await allTask;
+    }
+
+    private string UserName(string? id) =>
+        id != null && users.TryGetValue(id, out var u) ? u.Username : "ištrintas vartotojas";
+
+    private record TargetInfo(string Title, string? Link, string? OwnerId, string? OwnerName = null);
+
+    private TargetInfo Describe(ViolationReport r) => r.TargetType switch
+    {
+        "Workout" when workoutsById.TryGetValue(r.TargetId, out var w) => new(w.Title, $"workouts/{w.Id}", w.CreatedByUserId, w.CreatedByUserName),
+        "Program" when programsById.TryGetValue(r.TargetId, out var p) => new(p.Title, $"programs/{p.Id}", p.CreatedByUserId, p.CreatedByUserName),
+        "Exercise" when exercisesById.TryGetValue(r.TargetId, out var e) => new(e.Name, "exercises", e.CreatedByUserId, e.CreatedByUserName),
+        "User" when users.ContainsKey(r.TargetId) => new(UserName(r.TargetId), $"users?focus={r.TargetId}", r.TargetId),
+        "Comment" => new("Komentaras", null, null),
+        _ => new("Jau pašalinta", null, null)
+    };
+
+    /// <summary>Open (not dismissed) reports about anything this user owns, or about the user directly.</summary>
+    private int ReportsAgainst(string ownerId) => allReports.Count(r => r.Status != "Dismissed" && Describe(r).OwnerId == ownerId);
+
+    private async Task FilterByStatus(string? status)
+    {
+        selectedStatus = status;
+        await LoadTickets();
+    }
+
+    private async Task ChangeStatus(string ticketId, string newStatus)
+    {
+        error = null;
+        message = null;
+        try
+        {
+            var ok = await Api.UpdateReportStatusAsync(ticketId, newStatus);
+            if (ok)
+            {
+                message = $"Bilieto būsena sėkmingai atnaujinta į '{newStatus}'!";
+                await LoadTickets();
+            }
+            else
+            {
+                error = "Nepavyko atnaujinti bilieto būsenos.";
+            }
+        }
+        catch (Exception ex)
+        {
+            error = $"Klaida keičiant būseną: {ex.Message}";
+        }
+    }
+
+    private async Task RemoveWorkoutAndResolve(ViolationReport ticket)
+    {
+        error = null;
+        message = null;
+
+        // A 404 means the workout is already gone, which is fine for resolving the ticket.
+        var workout = await Api.GetWorkoutByIdAsync(ticket.TargetId);
+        if (workout != null && !await Api.DeleteWorkoutAsync(ticket.TargetId))
+        {
+            error = "Nepavyko ištrinti treniruotės.";
+            return;
+        }
+
+        if (await Api.UpdateReportStatusAsync(ticket.Id, "Resolved"))
+        {
+            message = workout != null
+                ? $"Treniruotė „{workout.Title}“ pašalinta, bilietas išspręstas."
+                : "Treniruotė jau buvo pašalinta, bilietas išspręstas.";
+            await LoadTickets();
+        }
+        else
+        {
+            error = "Treniruotė pašalinta, bet nepavyko atnaujinti bilieto būsenos.";
+        }
+    }
+
+    private void InspectTicket(ViolationReport ticket)
+    {
+        inspectedTicket = ticket;
+    }
+
+    private async Task HandleCreateReport()
+    {
+        error = null;
+        message = null;
+
+        if (Auth.CurrentUser != null)
+        {
+        }
+
+        try
+        {
+            var ok = await Api.CreateReportAsync(newReportDto);
+            if (ok)
+            {
+                message = "Naujas bilietas / pranešimas sėkmingai sukurtas!";
+                showCreateModal = false;
+                newReportDto = new()
+                {
+                    TargetType = "Workout",
+                    TargetId = "sample-target-1",
+                    Reason = ""
+                };
+                await LoadTickets();
+            }
+            else
+            {
+                error = "Nepavyko sukurti bilieto.";
+            }
+        }
+        catch (Exception ex)
+        {
+            error = $"Klaida: {ex.Message}";
+        }
+    }
+
+    private static readonly (string? Value, string Label)[] StatusFilters =
+    {
+        (null, "Visi"), ("Pending", "Laukia"), ("Reviewed", "Peržiūrėti"), ("Resolved", "Išspręsti"), ("Dismissed", "Atmesti")
+    };
+
+    private static string StatusLt(string status) => StatusFilters.FirstOrDefault(f => f.Value == status).Label ?? status;
+
+    private static string TargetLt(string type) => type switch
+    {
+        "Program" => "Programa",
+        "Workout" => "Treniruotė",
+        "Exercise" => "Pratimas",
+        "Comment" => "Komentaras",
+        "User" => "Vartotojas",
+        _ => type
+    };
+
+    private static string GetStatusBadgeClass(string status) => status switch
+    {
+        "Pending" => "bg-warning text-dark",
+        "Reviewed" => "bg-info text-white",
+        "Resolved" => "bg-success",
+        "Dismissed" => "bg-secondary",
+        _ => "bg-dark"
+    };
+}

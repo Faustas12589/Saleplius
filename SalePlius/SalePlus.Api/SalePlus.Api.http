@@ -1,0 +1,244 @@
+@Host = http://localhost:5059
+
+### 1. Sveikatos patikra (Firebase ryšys)
+GET {{Host}}/firebase-test
+Accept: application/json
+
+
+### 2. Gauti visus pratimus (JSON formatas)
+GET {{Host}}/api/exercises
+Accept: application/json
+
+### 3. Gauti visus pratimus (XML formatas - Content Negotiation)
+GET {{Host}}/api/exercises
+Accept: application/xml
+
+### 4. Filtruoti pratimus pagal raumenų grupę ir paiešką
+GET {{Host}}/api/exercises?muscleGroup=Krutinė&search=spaudimas
+Accept: application/json
+
+### 5. Gauti pratimą pagal ID (Pakeiskite ID į esamo pratimo ID)
+GET {{Host}}/api/exercises/bDKMBmTp5EijMh35hR2l
+Accept: application/json
+
+### 6. Gauti neegzistuojantį pratimą (404 Not Found testas)
+GET {{Host}}/api/exercises/neegzistuoja-12345
+Accept: application/json
+
+### 7. Sukurti naują pratimą (201 Created + Location header)
+POST {{Host}}/api/exercises
+Content-Type: application/json
+Accept: application/json
+
+{
+  "name": "Mirties trauka (Deadlift)",
+  "description": "Bazinis pratimas nugarai, sėdmenims ir šlaunims stiprinti.",
+  "muscleGroup": "Nugara",
+  "secondaryMuscleGroups": ["Sėdmenys", "Kojos", "Dilbiai"],
+  "difficulty": "Advanced",
+  "equipment": "Barbell",
+  "instructions": "Atsistokite prie štangos, tiesia nugara kelkite svorį stumdami klubus į priekį.",
+  "createdByUserId": "user-jonas",
+  "createdByUserName": "treneris_jonas"
+}
+
+### 8. Bandymas sukurti pratimą su neteisingais duomenimis (400 Bad Request testas)
+POST {{Host}}/api/exercises
+Content-Type: application/json
+
+{
+  "name": "",
+  "description": ""
+}
+
+### 9. Atnaujinti pratimą (200 OK)
+PUT {{Host}}/api/exercises/bDKMBmTp5EijMh35hR2l
+Content-Type: application/json
+
+{
+  "name": "Štangos spaudimas gulint (Bench Press) [Atnaujintas]",
+  "description": "Klasikinis pratimas viršutinei kūno daliai su atnaujintomis gairėmis.",
+  "muscleGroup": "Krūtinė",
+  "secondaryMuscleGroups": ["Tricepsas", "Pečiai"],
+  "difficulty": "Intermediate",
+  "equipment": "Barbell",
+  "instructions": "Nusileiskite lėtai per 2-3 sekundes, spauskite galingai aukštyn."
+}
+
+### 10. Ištrinti pratimą (204 No Content)
+DELETE {{Host}}/api/exercises/R1E7PAKEYIYDgRXnHbod
+
+### ========================================================
+### EXERCISE COMMENTS (PRATIMŲ KOMENTARAI - SUB-RESURSAS)
+### ========================================================
+
+### 11. Gauti pratimo komentarus
+GET {{Host}}/api/exercises/bDKMBmTp5EijMh35hR2l/comments
+Accept: application/json
+
+### 12. Pridėti komentarą prie pratimo (201 Created)
+POST {{Host}}/api/exercises/bDKMBmTp5EijMh35hR2l/comments
+Content-Type: application/json
+
+{
+  "userId": "faustas-1",
+  "userName": "Faustas",
+  "content": "Labai patiko technikos aprašymas, rekomenduoju visiems!"
+}
+
+### ========================================================
+### WORKOUTS (TRENIRUOTĖS)
+### ========================================================
+
+### 13. Gauti visas treniruotes (JSON)
+GET {{Host}}/api/workouts
+Accept: application/json
+
+### 14. Gauti visas treniruotes (XML - Content Negotiation)
+GET {{Host}}/api/workouts
+Accept: application/xml
+
+### 15. Filtruoti treniruotes pagal autorių arba raumenų grupę
+GET {{Host}}/api/workouts?muscleGroup=Kojos
+Accept: application/json
+
+### 16. Gauti konkrečią treniruotę pagal ID
+GET {{Host}}/api/workouts/oGQg7MyI4tnMStm2lcEj
+Accept: application/json
+
+### 17. Gauti treniruotės santrauką tekstiniu formatu (Content-Type: text/plain)
+GET {{Host}}/api/workouts/oGQg7MyI4tnMStm2lcEj/summary
+Accept: text/plain
+
+### 18. Sukurti naują treniruotę (201 Created)
+POST {{Host}}/api/workouts
+Content-Type: application/json
+
+{
+  "title": "Kojų ir pilvo preso treniruotė",
+  "description": "Intensyvi apatinės kūno dalies programa jėgai ir ištvermei.",
+  "difficulty": "Intermediate",
+  "targetMuscleGroups": ["Kojos", "Pilvo presas"],
+  "createdByUserId": "treneris-1",
+  "createdByUserName": "treneris_jonas",
+  "exercises": [
+    {
+      "exerciseId": "xXJrWpFDgJu86NZXHMQD",
+      "exerciseName": "Pritūpimai su štanga (Barbell Squat)",
+      "sets": 4,
+      "reps": 10,
+      "notes": "90s poilsis tarp serijų"
+    },
+    {
+      "exerciseId": "y5b4xGnDnwNUBtcqEEOB",
+      "exerciseName": "Lenta (Plank)",
+      "sets": 3,
+      "reps": 60,
+      "notes": "1 minutės trukmė"
+    }
+  ]
+}
+
+### 19. Pridėti pratimą į esamą treniruotę (201 Created)
+POST {{Host}}/api/workouts/RvnYWFjFF2MSEYse9vba/exercises
+Content-Type: application/json
+
+{
+  "exerciseId": "y5b4xGnDnwNUBtcqEEOB",
+  "exerciseName": "Lenta (Plank)",
+  "sets": 3,
+  "reps": 45,
+  "notes": "Stabilizavimui"
+}
+
+### 20. Pašalinti pratimą iš treniruotės (204 No Content)
+DELETE {{Host}}/api/workouts/RvnYWFjFF2MSEYse9vba/exercises/y5b4xGnDnwNUBtcqEEOB
+
+### 21. Gauti treniruotės įvertinimus
+GET {{Host}}/api/workouts/oGQg7MyI4tnMStm2lcEj/ratings
+Accept: application/json
+
+### 22. Įvertinti treniruotę (201 Created arba 409 Conflict jei jau vertinta)
+POST {{Host}}/api/workouts/oGQg7MyI4tnMStm2lcEj/ratings
+Content-Type: application/json
+
+{
+  "userId": "naujas_vartotojas_99",
+  "userName": "Rasa",
+  "score": 5,
+  "review": "Nuostabi programa, labai aiškiai viskas išdėstyta!"
+}
+
+### ========================================================
+### USERS IR SAVED WORKOUTS (VARTOTOJAI IR IŠSAUGOTOS TRENIRUOTĖS)
+### ========================================================
+
+### 23. Sukurti / užregistruoti vartotoją
+POST {{Host}}/api/users
+Content-Type: application/json
+
+{
+  "username": "petras_sportas",
+  "email": "petras@sportas.lt",
+  "role": "User",
+  "bio": "Aktyvus sporto entuziastas iš Vilniaus"
+}
+
+### 24. Bandymas sukurti vartotoją su tuo pačiu vardu (409 Conflict testas)
+POST {{Host}}/api/users
+Content-Type: application/json
+
+{
+  "username": "admin",
+  "email": "kitas_admin@saleplius.lt",
+  "role": "Admin"
+}
+
+### 25. Gauti vartotoją pagal ID
+GET {{Host}}/api/users/Jm0sWYZUW7CX5jaLZ5uo
+Accept: application/json
+
+### 26. Administratoriaus veiksmas: pakeisti vartotojo rolę (PATCH)
+PATCH {{Host}}/api/users/Jm0sWYZUW7CX5jaLZ5uo/role
+Content-Type: application/json
+
+{
+  "role": "Admin"
+}
+
+### 27. Išsisaugoti treniruotę (Bookmark / Favorite)
+POST {{Host}}/api/users/Jm0sWYZUW7CX5jaLZ5uo/saved-workouts/oGQg7MyI4tnMStm2lcEj
+
+### 28. Gauti vartotojo išsaugotas treniruotes
+GET {{Host}}/api/users/Jm0sWYZUW7CX5jaLZ5uo/saved-workouts
+Accept: application/json
+
+### 29. Pašalinti išsaugotą treniruotę iš asmeninio sąrašo (204 No Content)
+DELETE {{Host}}/api/users/Jm0sWYZUW7CX5jaLZ5uo/saved-workouts/oGQg7MyI4tnMStm2lcEj
+
+### ========================================================
+### VIOLATION REPORTS (PRANEŠIMAI APIE TAISYKLIŲ PAŽEIDIMUS)
+### ========================================================
+
+### 30. Pateikti taisyklių pažeidimo reportą
+POST {{Host}}/api/reports
+Content-Type: application/json
+
+{
+  "targetType": "Exercise",
+  "targetId": "bDKMBmTp5EijMh35hR2l",
+  "reportedByUserId": "user-jonas",
+  "reason": "Netinkamas aprašymas arba nusižengimas bendruomenės taisyklėms."
+}
+
+### 31. Administratoriaus veiksmas: peržiūrėti reportus (su filtravimu pagal statusą)
+GET {{Host}}/api/reports?status=Pending
+Accept: application/json
+
+### 32. Administratoriaus veiksmas: atnaujinti reporto statusą (PATCH)
+PATCH {{Host}}/api/reports/i8cO8t5XvjU9Y2aO1q9w/status
+Content-Type: application/json
+
+{
+  "status": "Resolved"
+}

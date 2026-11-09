@@ -1,0 +1,211 @@
+@page "/users"
+@attribute [Authorize]
+@inject ApiService Api
+@inject CustomAuthStateProvider Auth
+@inject NavigationManager Nav
+
+<PageTitle>Vartotojai · Salė+</PageTitle>
+
+@if (!Auth.IsAdmin)
+{
+    <div class="empty">Šis puslapis skirtas tik administratoriams.</div>
+}
+else
+{
+    <div class="page-head">
+        <div>
+            <h1>Vartotojai</h1>
+            <p>Daugiausiai pranešimų sulaukę vartotojai rodomi viršuje.</p>
+        </div>
+        <input class="form-control" style="max-width: 260px;" placeholder="Ieškoti vartotojo..." @bind="search" @bind:event="oninput" />
+    </div>
+
+    @if (error != null)
+    {
+        <div class="alert alert-danger alert-dismissible">
+            @error
+            <button type="button" class="btn-close" @onclick="() => error = null"></button>
+        </div>
+    }
+    @if (message != null)
+    {
+        <div class="alert alert-success alert-dismissible">
+            @message
+            <button type="button" class="btn-close" @onclick="() => message = null"></button>
+        </div>
+    }
+
+    @if (users == null)
+    {
+        <Loading />
+    }
+    else if (!Visible.Any())
+    {
+        <div class="empty">Vartotojų nerasta.</div>
+    }
+    else
+    {
+        <div class="card">
+            @foreach (var u in Visible)
+            {
+                var isMe = u.Id == Auth.CurrentUser?.Id;
+                var reportCount = ReportCount(u.Id);
+                var owned = workouts.Count(w => w.CreatedByUserId == u.Id);
+                <div class="user-row @(u.Id == Focus ? "focused" : "")" id="u-@u.Id">
+                    <span class="avatar-sm">@u.Username[..1].ToUpperInvariant()</span>
+
+                    <div class="flex-grow-1 min-w-0">
+                        <div class="fw-bold text-truncate">
+                            <a href="profile/@u.Id" class="text-reset">@u.Username</a>
+                            @if (isMe)
+                            {
+                                <span class="meta fw-normal">(jūs)</span>
+                            }
+                        </div>
+                        <div class="meta text-truncate">
+                            @u.Email<span class="dot">nuo @u.CreatedAt.ToLocalTime().ToString("yyyy-MM-dd")</span><span class="dot">@Text.Plural(owned, "treniruotė", "treniruotės", "treniruočių")</span>
+                        </div>
+                    </div>
+
+                    @if (reportCount > 0)
+                    {
+                        <a href="tickets" class="badge @(reportCount > 1 ? "bg-danger" : "bg-warning") text-decoration-none">
+                            @Text.Plural(reportCount, "pranešimas", "pranešimai", "pranešimų")
+                        </a>
+                    }
+
+                    <span class="badge @(AppRoles.IsAdmin(u.Role) ? "bg-dark" : "bg-light")">@(AppRoles.IsAdmin(u.Role) ? "Administratorius" : "Narys")</span>
+
+                    @if (!isMe)
+                    {
+                        <div class="d-flex gap-1">
+                            <button class="btn btn-sm btn-outline-secondary" disabled="@busy" @onclick="() => ToggleRole(u)">
+                                @(AppRoles.IsAdmin(u.Role) ? "Padaryti nariu" : "Padaryti admin")
+                            </button>
+                            <button class="btn btn-sm btn-outline-danger" disabled="@busy" @onclick="() => StartDelete(u)">Ištrinti</button>
+                        </div>
+                    }
+                </div>
+
+                @if (confirmUser?.Id == u.Id)
+                {
+                    <div class="confirm-row">
+                        <div class="fw-semibold mb-1">Ištrinti „@u.Username“ paskyrą?</div>
+                        <p class="small mb-2">Vartotojas nebegalės prisijungti, o jo esama sesija bus nutraukta. Šio veiksmo atšaukti negalima.</p>
+                        <label class="form-check small mb-3">
+                            <input type="checkbox" class="form-check-input" @bind="deleteContent" />
+                            <span class="form-check-label">Taip pat ištrinti visas jo programas, treniruotes ir pratimus (@Text.Plural(owned, "treniruotė", "treniruotės", "treniruočių"))</span>
+                        </label>
+                        <div class="d-flex gap-2">
+                            <button class="btn btn-sm btn-danger" disabled="@busy" @onclick="ConfirmDelete">@(busy ? "Trinama..." : "Ištrinti paskyrą")</button>
+                            <button class="btn btn-sm btn-outline-secondary" disabled="@busy" @onclick="() => confirmUser = null">Atšaukti</button>
+                        </div>
+                    </div>
+                }
+            }
+        </div>
+    }
+}
+
+@code {
+    [SupplyParameterFromQuery(Name = "focus")] public string? Focus { get; set; }
+
+    private List<UserProfile>? users;
+    private List<ViolationReport> reports = new();
+    private List<Workout> workouts = new();
+    private List<Exercise> exercises = new();
+    private List<TrainingProgram> programs = new();
+    private string? search, error, message;
+    private UserProfile? confirmUser;
+    private bool deleteContent, busy;
+
+    private IEnumerable<UserProfile> Visible => (users ?? [])
+        .Where(u => string.IsNullOrWhiteSpace(search) || Text.ContainsLoose(u.Username, search) || Text.ContainsLoose(u.Email, search))
+        .OrderByDescending(u => u.Id == Focus)
+        .ThenByDescending(u => ReportCount(u.Id))
+        .ThenBy(u => u.Username, StringComparer.CurrentCultureIgnoreCase);
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!Auth.IsAdmin) return;
+        await Load();
+    }
+
+    private async Task Load()
+    {
+        try
+        {
+            var usersTask = Api.GetUsersAsync();
+            var reportsTask = Api.GetReportsAsync();
+            var workoutsTask = Api.GetWorkoutsAsync();
+            var exercisesTask = Api.GetExercisesAsync();
+            var programsTask = Api.GetProgramsAsync();
+            users = await usersTask;
+            reports = await reportsTask;
+            workouts = await workoutsTask;
+            exercises = await exercisesTask;
+            programs = await programsTask;
+        }
+        catch (Exception ex)
+        {
+            error = $"Nepavyko užkrauti vartotojų: {ex.Message}";
+            users ??= [];
+        }
+    }
+
+    /// <summary>Open reports about the user or about content they created.</summary>
+    private int ReportCount(string userId) => reports.Count(r => r.Status != "Dismissed" && OwnerOf(r) == userId);
+
+    private string? OwnerOf(ViolationReport r) => r.TargetType switch
+    {
+        "User" => r.TargetId,
+        "Workout" => workouts.FirstOrDefault(w => w.Id == r.TargetId)?.CreatedByUserId,
+        "Program" => programs.FirstOrDefault(p => p.Id == r.TargetId)?.CreatedByUserId,
+        "Exercise" => exercises.FirstOrDefault(e => e.Id == r.TargetId)?.CreatedByUserId,
+        _ => null
+    };
+
+    private async Task ToggleRole(UserProfile u)
+    {
+        busy = true;
+        var newRole = AppRoles.IsAdmin(u.Role) ? AppRoles.User : AppRoles.Admin;
+        var (ok, err) = await Api.UpdateUserRoleAsync(u.Id, newRole);
+        busy = false;
+        if (ok)
+        {
+            u.Role = newRole;
+            message = $"„{u.Username}“ dabar yra {(AppRoles.IsAdmin(newRole) ? "administratorius" : "narys")}.";
+        }
+        else
+        {
+            error = err;
+        }
+    }
+
+    private void StartDelete(UserProfile u)
+    {
+        confirmUser = u;
+        deleteContent = ReportCount(u.Id) > 0;
+    }
+
+    private async Task ConfirmDelete()
+    {
+        if (confirmUser == null) return;
+        busy = true;
+        var (ok, err) = await Api.DeleteUserAsync(confirmUser.Id, deleteContent);
+        busy = false;
+
+        if (ok)
+        {
+            message = deleteContent
+                ? $"Paskyra „{confirmUser.Username}“ ir jo turinys ištrinti."
+                : $"Paskyra „{confirmUser.Username}“ ištrinta.";
+            confirmUser = null;
+            await Load();
+        }
+        else
+        {
+            error = err;
+        }
+    }
+}

@@ -1,0 +1,359 @@
+@page "/exercises"
+@inject ApiService Api
+@inject CustomAuthStateProvider Auth
+@inject CategoryStore Categories
+
+<PageTitle>Pratimai · Salė+</PageTitle>
+
+<div class="page-head">
+    <div>
+        <h1>Pratimai</h1>
+        <p>@(page == null ? "" : Text.Plural(page.TotalCount, "pratimas", "pratimai", "pratimų") + " bibliotekoje")</p>
+    </div>
+    @if (Auth.CanCreateContent)
+    {
+        <button class="btn @(showForm ? "btn-outline-secondary" : "btn-warning")" @onclick="() => showForm = !showForm">
+            @(showForm ? "Atšaukti" : "Naujas pratimas")
+        </button>
+    }
+</div>
+
+<div class="row g-4">
+    @* Muscle filter: right column on large screens, above the list on phones *@
+    <div class="col-lg-4 order-lg-2">
+        <MuscleFilter @bind-Selected="muscles" @bind-Selected:after="Load" Hover="hover" />
+    </div>
+
+    <div class="col-lg-8">
+<div class="row g-2 mb-4">
+    <div class="col-md-6">
+        <input class="form-control" placeholder="Ieškoti..." @bind="search" @bind:event="oninput" @bind:after="SearchChanged" />
+    </div>
+    <div class="col-md-3 col-6">
+        <select class="form-select" @bind="difficulty" @bind:after="Load">
+            <option value="">Visi lygiai</option>
+            <option value="Beginner">Pradedantiesiems</option>
+            <option value="Intermediate">Vidutinis</option>
+            <option value="Advanced">Pažengusiems</option>
+        </select>
+    </div>
+    <div class="col-md-3 col-6">
+        <select class="form-select" @bind="sort" @bind:after="Load">
+            <option value="@WorkoutSort.Rating">Geriausiai įvertinti</option>
+            <option value="@WorkoutSort.Newest">Naujausi</option>
+            <option value="@WorkoutSort.Name">Pagal pavadinimą</option>
+        </select>
+    </div>
+</div>
+
+@if (error != null)
+{
+    <div class="alert alert-danger">@error</div>
+}
+
+@if (showForm && Auth.CanCreateContent)
+{
+    <div class="card card-body p-4 mb-4">
+        <h2 class="section-title">Naujas pratimas</h2>
+        <EditForm Model="newExercise" OnValidSubmit="Create">
+            <DataAnnotationsValidator />
+            <ValidationSummary />
+            <div class="row g-2">
+                <div class="col-md-6">
+                    <label class="form-label small">Pavadinimas:</label>
+                    <InputText class="form-control" placeholder="pvz. Atsispaudimai nuo žemės" @bind-Value="newExercise.Name" />
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label small">Pagrindinė raumenų grupė:</label>
+                    <InputSelect class="form-select" @bind-Value="newExercise.MuscleGroup">
+                        <option value="">Pasirinkite</option>
+                        @foreach (var g in muscleGroups)
+                        {
+                            <option value="@g">@g</option>
+                        }
+                    </InputSelect>
+                </div>
+                <div class="col-12">
+                    <label class="form-label small">Aprašymas:</label>
+                    <InputTextArea class="form-control" rows="2" placeholder="Pratimo technika ir atlikimo taisyklės..." @bind-Value="newExercise.Description" />
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label small">Sudėtingumas:</label>
+                    <InputSelect class="form-select" @bind-Value="newExercise.Difficulty">
+                        <option>Beginner</option>
+                        <option>Intermediate</option>
+                        <option>Advanced</option>
+                    </InputSelect>
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label small">Reikalinga įranga:</label>
+                    <InputSelect class="form-select" @bind-Value="newExercise.Equipment">
+                        <option value="">Pasirinkite</option>
+                        @foreach (var g in equipment)
+                        {
+                            <option value="@g">@g</option>
+                        }
+                    </InputSelect>
+                </div>
+                <div class="col-md-4 d-flex align-items-end">
+                    <button class="btn btn-success w-100" type="submit">Išsaugoti pratimą</button>
+                </div>
+            </div>
+        </EditForm>
+    </div>
+}
+
+@if (exercises == null)
+{
+    <Loading />
+}
+else if (exercises.Count == 0)
+{
+    <div class="empty">@(muscles.Count > 0 ? "Nėra pratimų, apimančių visas pasirinktas raumenų grupes." : "Pratimų nerasta.")</div>
+}
+else
+{
+    <div class="row">
+        @foreach (var ex in exercises)
+        {
+            var mine = Auth.Owns(ex.CreatedByUserId);
+            @* Hovering (or tabbing into) a card lights up its main and secondary muscles *@
+            <HoverZone class="col-md-6 mb-3" Hover="hover" Primary="@(new[] { ex.MuscleGroup })" Secondary="ex.SecondaryMuscleGroups">
+                <div class="card h-100 @(mine ? "mine" : "")">
+                    @if (editingId == ex.Id)
+                    {
+                        <div class="card-body">
+                            <EditForm Model="editModel" OnValidSubmit="SaveEdit">
+                                <DataAnnotationsValidator />
+                                <ValidationSummary />
+                                <InputText class="form-control form-control-sm mb-2" placeholder="Pavadinimas" @bind-Value="editModel.Name" />
+                                <InputSelect class="form-select form-select-sm mb-2" @bind-Value="editModel.MuscleGroup">
+                                    <option value="">Raumenų grupė</option>
+                                    @foreach (var g in muscleGroups)
+                                    {
+                                        <option value="@g">@g</option>
+                                    }
+                                </InputSelect>
+                                <InputTextArea class="form-control form-control-sm mb-2" rows="2" placeholder="Aprašymas" @bind-Value="editModel.Description" />
+                                <InputTextArea class="form-control form-control-sm mb-2" rows="2" placeholder="Instrukcija" @bind-Value="editModel.Instructions" />
+                                <div class="row g-2 mb-2">
+                                    <div class="col-6">
+                                        <InputSelect class="form-select form-select-sm" @bind-Value="editModel.Difficulty">
+                                            <option>Beginner</option>
+                                            <option>Intermediate</option>
+                                            <option>Advanced</option>
+                                        </InputSelect>
+                                    </div>
+                                    <div class="col-6">
+                                        <InputSelect class="form-select form-select-sm" @bind-Value="editModel.Equipment">
+                                            <option value="">Įranga</option>
+                                            @foreach (var g in equipment)
+                                            {
+                                                <option value="@g">@g</option>
+                                            }
+                                        </InputSelect>
+                                    </div>
+                                </div>
+                                <div class="d-flex justify-content-end gap-2">
+                                    <button type="button" class="btn btn-sm btn-secondary" @onclick="() => editingId = null">Atšaukti</button>
+                                    <button type="submit" class="btn btn-sm btn-success">Išsaugoti</button>
+                                </div>
+                            </EditForm>
+                        </div>
+                    }
+                    else
+                    {
+                    <div class="card-body">
+                        <div class="d-flex justify-content-between align-items-start gap-2 mb-1">
+                            <h3 class="h6 fw-bold mb-0"><a href="exercises/@ex.Id" class="title-link">@ex.Name</a></h3>
+                            @if (ex.RatingCount > 0)
+                            {
+                                <span class="rating"><span class="star">★</span> @ex.Rating.ToString("0.0")</span>
+                            }
+                        </div>
+                        <div class="meta mb-2">
+                            @if (mine)
+                            {
+                                <span class="badge badge-mine">Mano</span>
+                            }
+                            else
+                            {
+                                <span>@ex.CreatedByUserName</span>
+                            }
+                            <span class="dot">@WorkoutCard.DifficultyLt(ex.Difficulty)</span>
+                        </div>
+                        <div class="d-flex flex-wrap gap-1 mb-2">
+                            <span class="chip">@ex.MuscleGroup</span>
+                            <span class="chip">@ex.Equipment</span>
+                        </div>
+                        <p class="small text-secondary mb-0">@ex.Description</p>
+                        @if (!string.IsNullOrWhiteSpace(ex.Instructions))
+                        {
+                            <p class="small text-muted pt-2 mt-2 mb-0" style="border-top: 1px solid var(--line);">
+                                <strong>Instrukcija:</strong> @ex.Instructions
+                            </p>
+                        }
+                    </div>
+                    @if (Auth.CanCreateContent)
+                    {
+                        <div class="card-footer d-flex gap-2 py-2">
+                            <SaveButton Kind="@SavedKind.Exercises" ItemId="@ex.Id" />
+                            @if (Auth.CanModify(ex.CreatedByUserId))
+                            {
+                                <button class="btn btn-sm btn-outline-secondary" @onclick="() => StartEdit(ex)">Redaguoti</button>
+                                <button class="btn btn-sm btn-ghost text-danger ms-auto" @onclick="() => AskDelete(ex)">Ištrinti</button>
+                            }
+                        </div>
+                    }
+                    }
+                </div>
+            </HoverZone>
+        }
+    </div>
+    <Pager Page="page" OnNavigate="LoadUrl" />
+}
+    </div>
+</div>
+
+<ConfirmModal @bind-Request="confirm" />
+
+@code {
+    private Confirmation? confirm;   // the "are you sure?" question shown in ConfirmModal
+
+    private void AskDelete(Exercise ex) =>
+        confirm = new("Ištrinti pratimą?", $"„{ex.Name}“ bus ištrintas iš bibliotekos.", () => Delete(ex.Id));
+    private const int PageSize = 6;
+    private PagedResult<Exercise>? page;
+    private List<Exercise>? exercises;
+    private string currentUrl = "";
+    private string? search, difficulty, error;
+    private IReadOnlyList<string> muscles = Array.Empty<string>();
+    private readonly MuscleHover hover = new();
+
+    // Search waits until typing pauses, instead of calling the API on every key press.
+    private CancellationTokenSource? searchPause;
+
+    private async Task SearchChanged()
+    {
+        searchPause?.Cancel();
+        searchPause = new CancellationTokenSource();
+        try
+        {
+            await Task.Delay(300, searchPause.Token);
+        }
+        catch (TaskCanceledException)
+        {
+            return;
+        }
+        await Load();
+    }
+
+    private string sort = WorkoutSort.Rating;
+    private bool showForm;
+    private CreateExerciseDto newExercise = new();
+    private string? editingId;
+    private UpdateExerciseDto editModel = new();
+    private List<string> muscleGroups = new(), equipment = new();
+
+    private void StartEdit(Exercise ex)
+    {
+        editingId = ex.Id;
+        editModel = new UpdateExerciseDto
+        {
+            Name = ex.Name,
+            Description = ex.Description,
+            MuscleGroup = ex.MuscleGroup,
+            SecondaryMuscleGroups = ex.SecondaryMuscleGroups,
+            Difficulty = ex.Difficulty,
+            Instructions = ex.Instructions,
+            Equipment = ex.Equipment
+        };
+    }
+
+    private async Task SaveEdit()
+    {
+        if (editingId == null) return;
+        var (ok, err) = await Api.UpdateExerciseAsync(editingId, editModel);
+        if (ok)
+        {
+            editingId = null;
+            await Load();
+        }
+        else
+        {
+            error = err;
+        }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        Auth.AuthenticationStateChanged += OnAuthStateChanged;
+        muscleGroups = await Categories.NamesAsync(CategoryTypes.MuscleGroup);
+        equipment = await Categories.NamesAsync(CategoryTypes.Equipment);
+        await Load();
+    }
+
+    private void OnAuthStateChanged(Task<AuthenticationState> task)
+    {
+        InvokeAsync(StateHasChanged);
+    }
+
+    /// <summary>Back to page 1 with the current filters and sort.</summary>
+    private Task Load() => LoadUrl(ApiService.Url("api/exercises", new()
+    {
+        ["search"] = search,
+        ["muscleGroup"] = muscles.Count == 0 ? null : string.Join(",", muscles),
+        ["difficulty"] = difficulty,
+        ["sort"] = sort,
+        ["page"] = "1",
+        ["pageSize"] = PageSize.ToString()
+    }));
+
+    /// <summary>Loads a page; the pager passes the API's "next"/"prev" links here.</summary>
+    private async Task LoadUrl(string url)
+    {
+        try
+        {
+            error = null;
+            page = await Api.GetPageAsync<Exercise>(url);
+            exercises = page.Items;
+            currentUrl = url;
+        }
+        catch (Exception ex)
+        {
+            error = $"Nepavyko pasiekti API: {ex.Message}";
+            exercises ??= [];
+        }
+    }
+
+    private async Task Create()
+    {
+        if (Auth.CurrentUser != null)
+        {
+        }
+
+        var (created, err) = await Api.CreateExerciseAndReturnAsync(newExercise);
+        if (created != null)
+        {
+            newExercise = new();
+            showForm = false;
+            await Load();
+        }
+        else
+        {
+            error = err;
+        }
+    }
+
+    private async Task Delete(string id)
+    {
+        if (await Api.DeleteExerciseAsync(id))
+        {
+            await Load();
+        }
+        else
+        {
+            error = "Nepavyko ištrinti pratimo.";
+        }
+    }
+}

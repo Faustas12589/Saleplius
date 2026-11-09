@@ -1,0 +1,179 @@
+@page "/login"
+@inject ApiService Api
+@inject CustomAuthStateProvider Auth
+@inject NavigationManager Nav
+
+<PageTitle>Prisijungimas · Salė+</PageTitle>
+
+<div class="mx-auto" style="max-width: 420px; padding-top: 2rem;">
+    @if (Auth.IsAuthenticated)
+    {
+        <div class="card">
+            <div class="card-body p-4 text-center">
+                <h1 class="h4 mb-1">Jūs prisijungę</h1>
+                <p class="meta mb-4">@Auth.CurrentUser?.Username · @(Auth.IsAdmin ? "Administratorius" : "Narys")</p>
+                <div class="d-flex justify-content-center gap-2">
+                    <a href="workouts" class="btn btn-warning">Į treniruotes</a>
+                    <button class="btn btn-outline-secondary" @onclick="Logout">Atsijungti</button>
+                </div>
+            </div>
+        </div>
+    }
+    else
+    {
+        <h1 class="h3 mb-1">@(isRegisterTab ? "Susikurkite paskyrą" : "Sveiki sugrįžę")</h1>
+        <p class="text-secondary mb-4">
+            @(isRegisterTab ? "Kurkite treniruotes, vertinkite ir komentuokite." : "Prisijunkite, kad galėtumėte kurti ir išsisaugoti treniruotes.")
+        </p>
+
+        <div class="segmented w-100 mb-4">
+            <button class="flex-fill @(isRegisterTab ? "" : "active")" @onclick="() => SwitchTab(false)">Prisijungti</button>
+            <button class="flex-fill @(isRegisterTab ? "active" : "")" @onclick="() => SwitchTab(true)">Registruotis</button>
+        </div>
+
+        @if (!string.IsNullOrEmpty(errorMessage))
+        {
+            <div class="alert alert-danger py-2">@errorMessage</div>
+        }
+
+        <div class="card">
+            <div class="card-body p-4">
+                @if (!isRegisterTab)
+                {
+                    <EditForm Model="loginModel" OnValidSubmit="HandleLogin">
+                        <DataAnnotationsValidator />
+                        <ValidationSummary />
+                        <div class="mb-3">
+                            <label class="form-label">Vartotojo vardas arba el. paštas</label>
+                            <InputText class="form-control" autocomplete="username" @bind-Value="loginModel.UsernameOrEmail" />
+                        </div>
+                        <div class="mb-4">
+                            <label class="form-label">Slaptažodis</label>
+                            <InputText type="password" class="form-control" autocomplete="current-password" @bind-Value="loginModel.Password" />
+                        </div>
+                        <button class="btn btn-warning w-100 py-2" type="submit" disabled="@loading">
+                            @(loading ? "Jungiamasi..." : "Prisijungti")
+                        </button>
+                    </EditForm>
+                }
+                else
+                {
+                    <EditForm Model="registerModel" OnValidSubmit="HandleRegister">
+                        <DataAnnotationsValidator />
+                        <ValidationSummary />
+                        <div class="mb-3">
+                            <label class="form-label">Vartotojo vardas</label>
+                            <InputText class="form-control" autocomplete="username" @bind-Value="registerModel.Username" />
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">El. paštas</label>
+                            <InputText type="email" class="form-control" autocomplete="email" @bind-Value="registerModel.Email" />
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Slaptažodis</label>
+                            <InputText type="password" class="form-control" autocomplete="new-password" placeholder="Bent 8 simboliai" @bind-Value="registerModel.Password" />
+                        </div>
+                        <div class="mb-4">
+                            <label class="form-label">Apie save <span class="fw-normal text-muted">(neprivaloma)</span></label>
+                            <InputTextArea class="form-control" rows="2" @bind-Value="registerModel.Bio" />
+                        </div>
+                        <button class="btn btn-warning w-100 py-2" type="submit" disabled="@loading">
+                            @(loading ? "Kuriama..." : "Sukurti paskyrą")
+                        </button>
+                    </EditForm>
+                }
+            </div>
+        </div>
+
+        @if (!isRegisterTab)
+        {
+            <div class="d-flex align-items-center justify-content-center gap-2 mt-4 meta">
+                <span>Išbandyti be registracijos:</span>
+                <button class="btn btn-sm btn-ghost" disabled="@loading" @onclick='() => DemoLogin("user", "User1")'>Demo narys</button>
+            </div>
+        }
+    }
+</div>
+
+@code {
+    private bool isRegisterTab;
+    private bool loading;
+    private string? errorMessage;
+
+    private LoginDto loginModel = new();
+    private RegisterDto registerModel = new();
+
+    private void SwitchTab(bool register)
+    {
+        isRegisterTab = register;
+        errorMessage = null;
+    }
+
+    private async Task HandleLogin()
+    {
+        errorMessage = null;
+        loading = true;
+        try
+        {
+            var result = await Api.LoginAsync(loginModel);
+            if (result.Success && result.Data != null)
+            {
+                await Auth.LoginAsync(result.Data);
+                Nav.NavigateTo("workouts");
+            }
+            else
+            {
+                errorMessage = result.Error ?? "Neteisingas vartotojo vardas arba slaptažodis.";
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Klaida: {ex.Message}";
+        }
+        finally
+        {
+            loading = false;
+        }
+    }
+
+    private async Task HandleRegister()
+    {
+        errorMessage = null;
+        loading = true;
+        try
+        {
+            var result = await Api.RegisterAsync(registerModel);
+            if (result.Success && result.Data != null)
+            {
+                await Auth.LoginAsync(result.Data);
+                Nav.NavigateTo("workouts");
+            }
+            else
+            {
+                errorMessage = result.Error ?? "Registracija nepavyko.";
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Klaida: {ex.Message}";
+        }
+        finally
+        {
+            loading = false;
+        }
+    }
+
+    private async Task DemoLogin(string username, string password)
+    {
+        loginModel.UsernameOrEmail = username;
+        loginModel.Password = password;
+        await HandleLogin();
+    }
+
+    private async Task Logout()
+    {
+        await Api.LogoutAsync();
+        loginModel = new();
+        registerModel = new();
+    }
+}

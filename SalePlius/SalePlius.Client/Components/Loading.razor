@@ -1,0 +1,11 @@
+@* Shown while data is loading: a small spinning ring and a label. *@
+
+<div class="loading @Class" role="status" aria-live="polite">
+    <span class="ring" aria-hidden="true"></span>
+    <span>@Text</span>
+</div>
+
+@code {
+    [Parameter] public string Text { get; set; } = "Kraunama...";
+    [Parameter] public string? Class { get; set; }
+}

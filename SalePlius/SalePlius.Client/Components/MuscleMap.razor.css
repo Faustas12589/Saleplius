@@ -1,0 +1,113 @@
+.muscle-map svg {
+    width: 100%;
+    height: auto;
+    display: block;
+    margin: 0 auto;
+    overflow: visible;
+}
+
+.shadow {
+    fill: rgba(22, 24, 29, .07);
+}
+
+.skin-outline {
+    fill: #f1ede6;
+    stroke: #ddd6ca;
+    stroke-width: 2;
+}
+
+.skin {
+    fill: #f1ede6;
+}
+
+.minor {
+    fill: #e4ded3;
+    stroke: #f1ede6;
+    stroke-width: .8;
+}
+
+.detail {
+    fill: none;
+    stroke: rgba(255, 255, 255, .55);
+    stroke-width: 1;
+    stroke-linecap: round;
+    pointer-events: none;
+}
+
+.view-label {
+    font-size: 10.5px;
+    font-weight: 700;
+    fill: var(--ink-3);
+    letter-spacing: .08em;
+    text-transform: uppercase;
+}
+
+.muscle {
+    fill: #d3cbbd;
+    stroke: #f1ede6;
+    stroke-width: .8;
+    cursor: pointer;
+    transition: fill .12s ease-out, opacity .12s ease-out;
+}
+
+.muscle.hover {
+    fill: #f4b996;
+}
+
+.muscle.selected {
+    fill: var(--accent-ink);
+}
+
+.muscle.selected.hover {
+    fill: #7d2f05;
+}
+
+/* An item is shown: its muscles light up, the rest fade */
+.muscle.primary {
+    fill: var(--accent);
+}
+
+/* Hovered card on a list page: its main muscles pulse gently */
+.pulsing .muscle.primary {
+    animation: pulse 1.6s ease-in-out .3s infinite;
+}
+
+.muscle.secondary {
+    fill: #f4b996;
+}
+
+.muscle.dim {
+    opacity: .55;
+}
+
+@keyframes pulse {
+    50% { fill: #f07a3a; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .pulsing .muscle.primary { animation: none; }
+}
+
+/* Subtle lines on the skin (jaw, neck) */
+.skin-line {
+    fill: none;
+    stroke: #ddd6ca;
+    stroke-width: 1;
+    stroke-linecap: round;
+    pointer-events: none;
+}
+
+/* Read-only map (detail pages): no pointer, hover only shows the name */
+.readonly .muscle {
+    cursor: default;
+}
+
+/* Keyboard focus on a muscle */
+.muscle:focus {
+    outline: none;
+}
+
+.muscle:focus-visible {
+    stroke: var(--ink);
+    stroke-width: 1.6;
+}

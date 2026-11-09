@@ -1,0 +1,214 @@
+@page "/programs/{Id}"
+@inject ApiService Api
+@inject CustomAuthStateProvider Auth
+@inject NavigationManager Nav
+
+<PageTitle>@(program?.Title ?? "Programa") · Salė+</PageTitle>
+
+<a href="programs" class="small fw-semibold text-decoration-none">← Programos</a>
+
+@if (error != null)
+{
+    <div class="alert alert-danger alert-dismissible mt-3">
+        @error
+        <button type="button" class="btn-close" @onclick="() => error = null"></button>
+    </div>
+}
+@if (message != null)
+{
+    <div class="alert alert-success alert-dismissible mt-3">
+        @message
+        <button type="button" class="btn-close" @onclick="() => message = null"></button>
+    </div>
+}
+
+@if (loading)
+{
+    <Loading Class="mt-3" />
+}
+else if (program == null)
+{
+    <div class="empty mt-3">Programa nerasta. Galbūt ji buvo ištrinta.</div>
+}
+else
+{
+    var mine = Auth.Owns(program.CreatedByUserId);
+    var trainingDays = program.Workouts.Select(w => w.Day).Distinct().Count();
+
+    <header class="mt-2 mb-4 pb-4" style="border-bottom: 1px solid var(--line);">
+        <div class="eyebrow mb-2">Programa · @program.Goal</div>
+        <h1 class="mb-2" style="font-size: clamp(1.7rem, 3vw, 2.4rem); font-weight: 800;">@program.Title</h1>
+        <div class="meta mb-3">
+            @if (mine)
+            {
+                <span class="badge badge-mine">Mano</span>
+            }
+            else
+            {
+                <a href="profile/@program.CreatedByUserId">@program.CreatedByUserName</a>
+            }
+            <span class="dot">@Text.Plural(program.DurationWeeks, "savaitė", "savaitės", "savaičių")</span>
+            <span class="dot">@Text.Plural(trainingDays, "treniruočių diena", "treniruočių dienos", "treniruočių dienų") per savaitę</span>
+            <span class="dot">@WorkoutCard.DifficultyLt(program.Difficulty)</span>
+        </div>
+        @if (!string.IsNullOrWhiteSpace(program.Description))
+        {
+            <p class="mb-0" style="color: var(--ink-2); font-size: 1.05rem; max-width: 46rem;">@program.Description</p>
+        }
+
+        <div class="d-flex flex-wrap gap-2 mt-4">
+            <SaveButton Kind="@SavedKind.Programs" ItemId="@program.Id" />
+            @if (Auth.CanModify(program.CreatedByUserId))
+            {
+                <a href="programs/@program.Id/edit" class="btn btn-sm btn-warning">Redaguoti</a>
+            }
+            @if (Auth.IsAuthenticated && !mine)
+            {
+                <button class="btn btn-sm btn-ghost ms-auto" @onclick="() => showReport = true">Pranešti apie pažeidimą</button>
+            }
+            @if (Auth.CanModify(program.CreatedByUserId))
+            {
+                <button class="btn btn-sm btn-outline-danger ms-auto" @onclick="AskDelete">Ištrinti programą</button>
+            }
+        </div>
+    </header>
+
+    <div class="row g-4">
+    <!-- Muscles: right column on large screens, first on phones -->
+    <div class="col-lg-4 order-lg-2">
+        <MuscleCard Primary="program.MuscleGroups" Hover="hover" />
+    </div>
+
+    <div class="col-lg-8">
+    <div class="d-flex justify-content-between align-items-baseline mb-2">
+        <h2 class="section-title mb-0">Savaitės tvarkaraštis</h2>
+        <span class="meta">kartojama @Text.Plural(program.DurationWeeks, "savaitę", "savaites", "savaičių")</span>
+    </div>
+    @if (program.Workouts.Count == 0)
+    {
+        <div class="empty">Tvarkaraštis dar tuščias.</div>
+    }
+    else
+    {
+        <div class="schedule">
+            @for (var d = 1; d <= 7; d++)
+            {
+                var items = program.Workouts.Where(w => w.Day == d).ToList();
+                <div class="schedule-row @(items.Count == 0 ? "rest" : "")">
+                    <div class="schedule-day">@ProgramText.Day(d)</div>
+                    <div class="schedule-items">
+                        @if (items.Count == 0)
+                        {
+                            <span>Poilsis</span>
+                        }
+                        @foreach (var item in items)
+                        {
+                            var workout = workouts.GetValueOrDefault(item.WorkoutId);
+                            <HoverZone Tag="a" href="@($"programs/{program.Id}/workouts/{item.WorkoutId}")" class="schedule-item"
+                                       Hover="hover" Primary="item.TargetMuscleGroups">
+                                <span class="title">@item.WorkoutTitle</span>
+                                <span class="meta">
+                                    @if (workout != null)
+                                    {
+                                        @Text.Plural(workout.Exercises.Count, "pratimas", "pratimai", "pratimų")
+                                    }
+                                    @if (!string.IsNullOrWhiteSpace(item.Notes))
+                                    {
+                                        <span class="@(workout != null ? "dot" : "")">@item.Notes</span>
+                                    }
+                                </span>
+                            </HoverZone>
+                        }
+                    </div>
+                </div>
+            }
+        </div>
+    }
+    </div>
+    </div>
+}
+
+@if (showReport)
+{
+    <div class="modal d-block modal-animated" tabindex="-1" role="dialog" aria-modal="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Pranešti apie „@program?.Title“</h5>
+                    <button type="button" class="btn-close" @onclick="() => showReport = false"></button>
+                </div>
+                <div class="modal-body">
+                    <p class="small text-muted">Administratoriai peržiūrės pranešimą ir imsis veiksmų.</p>
+                    <textarea class="form-control" rows="4" placeholder="Kokias taisykles pažeidžia ši programa? (bent 5 simboliai)" @bind="reportReason" @bind:event="oninput"></textarea>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" @onclick="() => showReport = false">Atšaukti</button>
+                    <button type="button" class="btn btn-danger" disabled="@((reportReason?.Trim().Length ?? 0) < 5)" @onclick="SubmitReport">Pateikti</button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+<ConfirmModal @bind-Request="confirm" />
+
+@code {
+    private Confirmation? confirm;   // the "are you sure?" question shown in ConfirmModal
+
+    private void AskDelete() =>
+        confirm = new("Ištrinti programą?", $"„{program!.Title}“ bus ištrinta. Jos treniruotės liks kaip atskiros treniruotės.", DeleteProgram);
+    [Parameter] public string Id { get; set; } = string.Empty;
+
+    private TrainingProgram? program;
+    private Dictionary<string, Workout> workouts = new();
+    private readonly MuscleHover hover = new();   // schedule entry under the mouse, shown on the body map
+    private bool loading = true, showReport;
+    private string? error, message, reportReason;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        loading = true;
+        program = await Api.GetProgramAsync(Id);
+        if (program != null)
+        {
+            // Load the scheduled workouts for extra detail (exercise counts).
+            var all = await Api.GetWorkoutsAsync();
+            var ids = program.Workouts.Select(w => w.WorkoutId).ToHashSet();
+            workouts = all.Where(w => ids.Contains(w.Id)).ToDictionary(w => w.Id);
+        }
+        loading = false;
+    }
+
+    private async Task DeleteProgram()
+    {
+        if (await Api.DeleteProgramAsync(Id))
+        {
+            Nav.NavigateTo("programs");
+        }
+        else
+        {
+            error = "Nepavyko ištrinti programos.";
+        }
+    }
+
+    private async Task SubmitReport()
+    {
+        var ok = await Api.CreateReportAsync(new CreateReportDto
+        {
+            TargetType = "Program",
+            TargetId = Id,
+            Reason = reportReason?.Trim() ?? ""
+        });
+
+        if (ok)
+        {
+            showReport = false;
+            reportReason = null;
+            message = "Pranešimas išsiųstas administratoriams. Ačiū!";
+        }
+        else
+        {
+            error = "Nepavyko pateikti pranešimo.";
+        }
+    }
+}

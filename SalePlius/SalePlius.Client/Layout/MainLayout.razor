@@ -1,0 +1,104 @@
+@inherits LayoutComponentBase
+@implements IDisposable
+@inject CustomAuthStateProvider Auth
+@inject ApiService Api
+@inject NavigationManager Nav
+
+<header class="topbar">
+    <div class="topbar-inner">
+        <a href="" class="brand">Salė<span>+</span></a>
+
+        @* On phones the menu folds behind the hamburger button *@
+        <div id="main-menu" class="nav-wrap @(menuOpen ? "open" : "")">
+            <NavMenu />
+        </div>
+
+        <div class="account">
+            <AuthorizeView>
+                <Authorized>
+                    <a href="profile" class="who text-decoration-none text-reset" title="Mano profilis">
+                        <span class="avatar">@Initial</span>
+                        <span class="who-text d-none d-sm-flex">
+                            <strong>@(Auth.CurrentUser?.Username ?? context.User.Identity?.Name)</strong>
+                            <small>@(Auth.IsAdmin ? "Administratorius" : "Narys")</small>
+                        </span>
+                    </a>
+                    <button class="btn btn-sm btn-ghost" @onclick="HandleLogout">Atsijungti</button>
+                </Authorized>
+                <NotAuthorized>
+                    <a href="login" class="btn btn-sm btn-dark">Prisijungti</a>
+                </NotAuthorized>
+            </AuthorizeView>
+        </div>
+
+        <button type="button" class="burger @(menuOpen ? "open" : "")" aria-controls="main-menu"
+                aria-expanded="@(menuOpen ? "true" : "false")" aria-label="@(menuOpen ? "Uždaryti meniu" : "Atidaryti meniu")"
+                @onclick="() => menuOpen = !menuOpen">
+            <span></span><span></span><span></span>
+        </button>
+    </div>
+</header>
+
+<main class="shell">
+    @Body
+</main>
+
+@* Decorative anatomy pictures in the empty side margins of wide screens; they scale with the window.
+   Each figure is cut off on one side: that side sits on the edge of the window, so it steps in from outside. *@
+<div class="side-art" aria-hidden="true">
+    <img src="img/right.jpg" alt="" class="side-art-left" />
+    <img src="img/left.jpg" alt="" class="side-art-right" />
+</div>
+
+<footer class="site-footer">
+    <div class="footer-inner">
+        <div class="footer-about">
+            <a href="" class="brand">Salė<span>+</span></a>
+            <p>Treniruočių programos, treniruotės ir pratimai vienoje vietoje.</p>
+        </div>
+        <nav class="footer-links" aria-label="Poraštės nuorodos">
+            <a href="programs">Programos</a>
+            <a href="workouts">Treniruotės</a>
+            <a href="exercises">Pratimai</a>
+        </nav>
+        <small class="footer-copy">© @DateTime.Now.Year Salė+</small>
+    </div>
+</footer>
+
+@code {
+    private bool menuOpen;
+
+    private string Initial => (Auth.CurrentUser?.Username ?? "?")[..1].ToUpperInvariant();
+
+    protected override async Task OnInitializedAsync()
+    {
+        Auth.AuthenticationStateChanged += HandleAuthStateChanged;
+        Nav.LocationChanged += HandleLocationChanged;
+        await Auth.GetAuthenticationStateAsync();
+    }
+
+    private void HandleAuthStateChanged(Task<AuthenticationState> task)
+    {
+        InvokeAsync(StateHasChanged);
+    }
+
+    // Picking a page from the phone menu closes it.
+    private void HandleLocationChanged(object? sender, Microsoft.AspNetCore.Components.Routing.LocationChangedEventArgs e)
+    {
+        if (!menuOpen) return;
+        menuOpen = false;
+        InvokeAsync(StateHasChanged);
+    }
+
+    private async Task HandleLogout()
+    {
+        await Api.LogoutAsync();
+        Nav.NavigateTo("/", forceLoad: false);
+    }
+
+    public void Dispose()
+    {
+        Auth.AuthenticationStateChanged -= HandleAuthStateChanged;
+        Nav.LocationChanged -= HandleLocationChanged;
+    }
+}

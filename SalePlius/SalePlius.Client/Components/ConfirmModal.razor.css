@@ -1,0 +1,20 @@
+.confirm-backdrop {
+    background-color: rgba(22, 24, 29, .45);
+    animation: fade .15s ease-out;
+}
+
+.confirm-dialog {
+    animation: pop .18s ease-out;
+}
+
+@keyframes fade {
+    from { opacity: 0; }
+}
+
+@keyframes pop {
+    from { opacity: 0; transform: translateY(8px) scale(.98); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .confirm-backdrop, .confirm-dialog { animation: none; }
+}

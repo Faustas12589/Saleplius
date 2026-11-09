@@ -1,0 +1,11 @@
+<div class="empty">
+    <p class="mb-3">Išsaugotų @What dar nėra.</p>
+    <a href="@Href" class="btn btn-warning">@Link</a>
+</div>
+
+@code {
+    /// <summary>Genitive plural, e.g. "programų".</summary>
+    [Parameter] public string What { get; set; } = string.Empty;
+    [Parameter] public string Href { get; set; } = string.Empty;
+    [Parameter] public string Link { get; set; } = string.Empty;
+}

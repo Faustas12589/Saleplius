@@ -1,0 +1,371 @@
+@implements IDisposable
+@*
+    Body map (front + back) drawn as inline SVG, one shape group per muscle category.
+    Interactive: click (or Tab + Enter/Space) a muscle to toggle it as a filter.
+    Primary/Secondary: what the page is about (always shown).
+    Hover: the card or row under the mouse (shown instead, while set).
+*@
+
+<div class="muscle-map @(Interactive ? "interactive" : "readonly") @(Pulse && Hovering ? "pulsing" : "")">
+    <svg viewBox="0 0 340 356" style="max-width: @(MaxWidth)px" role="@(Interactive ? "group" : "img")" aria-label="@AriaLabel">
+        @{ var state = States(); }
+        @foreach (var view in Views)
+        {
+            <g transform="translate(@view.OffsetX 0)">
+                <ellipse class="shadow" cx="80" cy="343" rx="46" ry="5" />
+
+                @* Body and head: outline first, then the fill on top hides the seam where the two halves meet *@
+                @foreach (var d in BodyPaths)
+                {
+                    <path class="skin-outline" d="@d" />
+                }
+                @foreach (var d in BodyPaths)
+                {
+                    <path class="skin" d="@d" />
+                }
+
+                @* Kneecaps and Achilles tendons: drawn, but not muscle groups *@
+                @foreach (var d in view.Minor)
+                {
+                    <path class="minor" d="@d" />
+                }
+
+                @foreach (var shape in view.Muscles)
+                {
+                    if (Interactive)
+                    {
+                        <path class="muscle @state[shape.Group]" d="@shape.D"
+                              tabindex="@(shape.TabStop ? 0 : -1)" role="button"
+                              aria-label="@shape.Group" aria-pressed="@(Selected.Contains(shape.Group) ? "true" : "false")"
+                              @onclick="() => Toggle(shape.Group)"
+                              @onkeydown="e => OnKey(e, shape.Group)"
+                              @onfocus="() => hovered = shape.Group"
+                              @onblur="() => hovered = null"
+                              @onmouseenter="() => hovered = shape.Group"
+                              @onmouseleave="() => hovered = null" />
+                    }
+                    else
+                    {
+                        <path class="muscle @state[shape.Group]" d="@shape.D" />
+                    }
+                }
+
+                @foreach (var d in view.Details)
+                {
+                    <path class="detail" d="@d" />
+                }
+                @foreach (var d in view.SkinLines)
+                {
+                    <path class="skin-line" d="@d" />
+                }
+
+                <text x="80" y="356" text-anchor="middle" class="view-label">@view.Label</text>
+            </g>
+        }
+    </svg>
+</div>
+
+@code {
+    /// <summary>Muscle groups chosen as a filter (shown as selected).</summary>
+    [Parameter] public IReadOnlyCollection<string> Selected { get; set; } = Array.Empty<string>();
+
+    /// <summary>Main muscles of what the page shows (strong highlight).</summary>
+    [Parameter] public IReadOnlyCollection<string> Primary { get; set; } = Array.Empty<string>();
+
+    /// <summary>Secondary muscles of what the page shows (soft highlight).</summary>
+    [Parameter] public IReadOnlyCollection<string> Secondary { get; set; } = Array.Empty<string>();
+
+    /// <summary>The card or row under the mouse (see HoverZone); shown instead of Primary/Secondary while set.</summary>
+    [Parameter] public MuscleHover? Hover { get; set; }
+
+    [Parameter] public EventCallback<string> OnToggle { get; set; }
+
+    /// <summary>False on detail pages: the map only shows muscles, clicking does nothing.</summary>
+    [Parameter] public bool Interactive { get; set; } = true;
+
+    /// <summary>Pulse the main muscles while a hovered card is shown.</summary>
+    [Parameter] public bool Pulse { get; set; } = true;
+
+    [Parameter] public int MaxWidth { get; set; } = 440;
+
+    /// <summary>Muscle groups that have a place on the body (category names).</summary>
+    public static readonly string[] Groups =
+    {
+        "Krūtinė", "Priekiniai deltiniai", "Užpakaliniai deltiniai", "Bicepsas", "Tricepsas", "Dilbiai",
+        "Pilvo presas", "Įstrižiniai", "Trapecinis", "Platieji nugaros", "Apatinė nugara",
+        "Sėdmenys", "Keturgalviai", "Šlaunies dvigalviai", "Pritraukiamieji", "Blauzdos",
+    };
+
+    /// <summary>True when the group can be clicked on the body.</summary>
+    public static bool IsOnBody(string group) => Groups.Contains(group, StringComparer.OrdinalIgnoreCase);
+
+    private string AriaLabel => Interactive
+        ? "Raumenų grupių filtras"
+        : Primary.Count == 0 ? "Raumenų žemėlapis" : "Treniruojami raumenys: " + string.Join(", ", Primary.Concat(Secondary));
+
+    private string? hovered;   // muscle under the pointer (filter only): lightly highlighted
+
+    /// <summary>CSS state of every muscle group, worked out once per render (not once per shape).</summary>
+    private Dictionary<string, string> States()
+    {
+        var primary = Hovering ? hoverP : Primary;
+        var secondary = Hovering ? hoverS : Secondary;
+        var anyShown = primary.Count > 0 || secondary.Count > 0;
+
+        var states = new Dictionary<string, string>(Groups.Length);
+        foreach (var group in Groups)
+        {
+            var css = Selected.Contains(group) ? "selected" : "";
+            if (primary.Contains(group)) css += " primary";
+            else if (secondary.Contains(group)) css += " secondary";
+            else if (anyShown) css += " dim";
+            if (group == hovered) css += " hover";
+            states[group] = css;
+        }
+        return states;
+    }
+
+    // ---- Hover: comes from MuscleHover, so only this map redraws (not the page) ----
+    // Moving the mouse from one card to the next crosses the gap between them. The highlight is released
+    // after a short delay, so the body doesn't flash back to plain and light up again on every move.
+    private const int ReleaseDelayMs = 300;
+    private IReadOnlyCollection<string> hoverP = Array.Empty<string>(), hoverS = Array.Empty<string>();
+    private CancellationTokenSource? release;
+    private MuscleHover? subscribed;
+
+    private bool Hovering => hoverP.Count > 0 || hoverS.Count > 0;
+
+    protected override void OnParametersSet()
+    {
+        if (ReferenceEquals(subscribed, Hover)) return;
+        if (subscribed != null) subscribed.Changed -= OnHoverChanged;
+        subscribed = Hover;
+        if (subscribed != null) subscribed.Changed += OnHoverChanged;
+    }
+
+    private void OnHoverChanged() => _ = InvokeAsync(() =>
+    {
+        if (Hover == null) return;
+        if (!Hover.IsEmpty)
+        {
+            release?.Cancel();
+            release = null;
+            hoverP = Hover.Primary;
+            hoverS = Hover.Secondary;
+            StateHasChanged();
+        }
+        else if (Hovering && release == null)
+        {
+            release = new CancellationTokenSource();
+            _ = ReleaseLater(release.Token);
+        }
+    });
+
+    private async Task ReleaseLater(CancellationToken token)
+    {
+        try
+        {
+            await Task.Delay(ReleaseDelayMs, token);
+        }
+        catch (TaskCanceledException)
+        {
+            return;
+        }
+
+        release = null;
+        hoverP = hoverS = Array.Empty<string>();
+        await InvokeAsync(StateHasChanged);
+    }
+
+    public void Dispose()
+    {
+        release?.Cancel();
+        if (subscribed != null) subscribed.Changed -= OnHoverChanged;
+    }
+
+    private Task Toggle(string group) => OnToggle.InvokeAsync(group);
+
+    private Task OnKey(KeyboardEventArgs e, string group) =>
+        e.Key is "Enter" or " " ? Toggle(group) : Task.CompletedTask;
+
+    private record Region(string Group, string[] Paths);
+    private record View(string Label, int OffsetX, Region[] Regions, string[] Minor, string[] Details, string[] SkinLines);
+
+    // What gets rendered: every path already mirrored. Built once when the app starts, never per render.
+    private record Shape(string Group, string D, bool TabStop);
+    private record ReadyView(string Label, int OffsetX, Shape[] Muscles, string[] Minor, string[] Details, string[] SkinLines);
+
+    // Every shape is drawn for the left half only (x ≤ 80) and mirrored to the right (x → 160 − x).
+    // Body and head halves reach x = 80.6 so the two mirrored halves overlap and leave no seam.
+
+    // Head with cranium, ear, jaw and chin.
+    private const string Head =
+        "M80.6 7 C71 7 65 13 65 23 C65 28 66 31 67 34 C64 34 63 37 64 40 C65 43 67 44 68 43 " +
+        "C69 48 72 52 76 54 C78 55 80.6 55 80.6 55 Z";
+
+    // Broad shoulders, V-taper, big arms and legs.
+    private const string Silhouette =
+        "M80.6 48 L72 48 C71 55 65 60 54 62 C40 64 30 70 28 82 C26 92 26 102 27 110 C27 118 28 126 30 132 " +
+        "C25 144 22 158 22 172 C22 180 23 186 25 190 C24 196 24 204 27 210 C30 214 34 212 35 206 " +
+        "C36 200 36 194 35 190 C38 178 41 162 43 148 C44 140 44 134 43 130 C45 120 47 108 48 98 " +
+        "C49 104 50 112 52 122 C54 132 56 140 58 148 C57 156 54 164 53 172 C48 190 47 214 50 236 " +
+        "C51 244 53 250 54 256 C51 270 50 286 53 300 C55 310 57 318 58 324 L57 332 C55 336 55 340 60 340 " +
+        "L73 340 C75 338 74 333 72 329 L72 322 C75 306 77 288 76 272 C76 264 76 258 77 252 " +
+        "C79 232 80.6 212 80.6 190 Z";
+
+    private const string Delt = "M58 62 C46 61 34 66 30 78 C27 88 28 98 31 106 C35 98 40 90 45 84 C50 78 55 70 58 62 Z";
+    private const string UpperArm = "M31 109 C28 116 28 124 30 130 C34 134 40 134 43 130 C46 122 47 112 46 104 C42 100 35 102 31 109 Z";
+    private static readonly string[] Forearm =
+    {
+        "M29 136 C25 148 23 162 24 176 L30 177 C31 164 33 150 36 137 C34 134 31 134 29 136 Z",
+        "M37 137 C34 150 32 164 31 177 L34 178 C37 166 41 152 42 139 C41 136 39 135 37 137 Z",
+    };
+
+    private static readonly View Front = new("Priekis", 0, new Region[]
+    {
+        new("Trapecinis", new[] { "M72 52 C71 56 67 60 60 62 L74 64 C75 60 74 56 72 52 Z" }), // seen above the collarbone
+        new("Krūtinė", new[] { "M79 66 C70 63 60 63 54 67 C47 74 45 86 47 96 C51 106 64 110 79 107 Z" }),
+        new("Priekiniai deltiniai", new[] { Delt }),
+        new("Bicepsas", new[] { UpperArm }),
+        new("Dilbiai", Forearm),
+        new("Pilvo presas", new[]
+        {
+            "M79 111 L69 111 C68 115 68 119 69 123 L79 123 Z",
+            "M79 126 L69 126 C68 130 68 134 69 138 L79 138 Z",
+            "M79 141 L69 141 C68 145 68 149 69 153 L79 153 Z",
+            "M79 156 L70 156 C70 164 74 172 79 178 Z",
+        }),
+        new("Įstrižiniai", new[]
+        {
+            "M60 109 C64 112 67 115 67 119 L67 156 C65 162 63 167 61 171 C59 156 58 142 57 128 C57 120 58 113 60 109 Z",
+            "M50 99 L57 103 L51 107 Z",   // serratus on the ribs
+            "M51 109 L58 113 L52 117 Z",
+            "M53 119 L59 122 L55 126 Z",
+        }),
+        new("Keturgalviai", new[]
+        {
+            "M55 176 C49 196 49 220 52 244 C55 250 59 250 62 246 C60 222 60 198 63 182 Z",   // outer
+            "M64 178 C61 200 61 224 63 246 C67 253 73 253 75 247 C76 226 76 204 73 186 Z",  // middle
+            "M74 228 C78 234 78 244 75 252 C71 254 69 251 70 247 C73 242 74 236 74 228 Z",  // teardrop
+        }),
+        new("Pritraukiamieji", new[] { "M74 180 L80 188 L80 222 C77 212 75 198 74 180 Z" }),
+        new("Blauzdos", new[]
+        {
+            "M54 263 C50 279 51 298 56 316 L62 316 C60 298 59 280 61 265 Z",
+            "M65 263 C72 275 75 290 74 304 C72 310 69 312 66 312 C64 296 64 278 65 263 Z",
+        }),
+    },
+    Minor: new[]
+    {
+        "M62 252 C66 250 72 250 75 254 C74 259 70 261 66 261 C63 259 62 256 62 252 Z", // kneecap
+    },
+    Details: new[]
+    {
+        "M52 78 C60 82 70 86 78 90",      // chest fibres
+        "M50 88 C58 92 68 96 77 100",
+        "M42 70 C40 80 38 90 36 98",      // front / side shoulder split
+        "M37 110 C37 117 37 124 38 128", // biceps peak
+        "M26 196 L26 206 M29 199 L29 209 M32 199 L32 207", // fingers
+        "M58 200 C59 214 60 228 61 240", // quad lines
+        "M68 196 C68 212 69 228 70 242",
+        "M58 272 C58 288 59 300 60 310", // shin
+    },
+    SkinLines: new[]
+    {
+        "M73 46 C75 49 78 50 80 50",      // jaw line
+        "M74 55 C74 58 73 61 71 63",      // neck muscle
+    });
+
+    private static readonly View Back = new("Nugara", 170, new Region[]
+    {
+        new("Trapecinis", new[] { "M80 50 C76 54 68 60 56 63 C62 70 70 84 80 108 Z" }),
+        new("Platieji nugaros", new[]
+        {
+            "M58 68 C53 74 52 84 54 92 L68 88 C66 80 63 72 58 68 Z",                     // shoulder blade
+            "M52 96 C50 112 53 128 62 142 L79 150 L79 112 C72 106 62 100 52 96 Z",       // lats
+        }),
+        new("Apatinė nugara", new[] { "M71 152 L79 154 L79 172 L70 172 C70 165 70 158 71 152 Z" }),
+        new("Užpakaliniai deltiniai", new[] { Delt }),
+        new("Tricepsas", new[] { UpperArm }),
+        new("Dilbiai", Forearm),
+        new("Sėdmenys", new[] { "M55 176 C50 188 52 204 63 209 C72 211 79 205 79 194 L79 176 C71 173 62 173 55 176 Z" }),
+        new("Šlaunies dvigalviai", new[]
+        {
+            "M54 213 C51 228 52 242 56 254 C60 257 63 255 64 250 C63 238 63 226 64 214 Z",
+            "M66 214 C66 228 66 240 67 252 C71 257 75 255 76 250 C77 238 77 226 76 212 Z",
+        }),
+        new("Blauzdos", new[]
+        {
+            "M54 262 C49 276 50 294 56 304 C60 307 63 305 64 300 C64 286 64 272 63 262 Z",
+            "M65 262 C72 270 76 284 75 298 C73 307 68 307 65 302 C64 288 64 274 65 262 Z",
+        }),
+    },
+    Minor: new[]
+    {
+        "M63 308 L69 308 L70 324 L64 324 Z", // Achilles tendon
+    },
+    Details: new[]
+    {
+        "M34 114 C38 121 42 121 44 113",   // triceps horseshoe
+        "M60 112 C65 120 71 128 77 134",   // lat fibres
+        "M57 122 C62 130 68 137 75 142",
+        "M66 70 C70 78 74 88 78 98",       // traps
+        "M58 190 C64 196 72 198 78 197",   // glute line
+        "M64 274 C64 284 65 292 65 298",   // calf split
+        "M26 196 L26 206 M29 199 L29 209 M32 199 L32 207", // fingers
+    },
+    SkinLines: Array.Empty<string>());
+
+    private static readonly string[] BodyPaths = Mirror(new[] { Silhouette, Head }).ToArray();
+    private static readonly ReadyView[] Views = Prepare(Front, Back);
+
+    private static ReadyView[] Prepare(params View[] views)
+    {
+        var seen = new HashSet<string>();   // one keyboard stop per muscle group: its first shape
+        return views.Select(v => new ReadyView(
+            v.Label,
+            v.OffsetX,
+            v.Regions.SelectMany(r => Mirror(r.Paths).Select(d => new Shape(r.Group, d, seen.Add(r.Group)))).ToArray(),
+            Mirror(v.Minor).ToArray(),
+            Mirror(v.Details).ToArray(),
+            Mirror(v.SkinLines).ToArray())).ToArray();
+    }
+
+    /// <summary>Returns each left-side path plus its mirror image.</summary>
+    private static IEnumerable<string> Mirror(IEnumerable<string> paths)
+    {
+        foreach (var d in paths)
+        {
+            yield return d;
+            yield return MirrorPath(d);
+        }
+    }
+
+    private static string MirrorPath(string d)
+    {
+        // Coordinates come in "x y" pairs after each command letter; flip every x.
+        var inv = System.Globalization.CultureInfo.InvariantCulture;
+        var tokens = d.Replace(",", " ").Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        var result = new List<string>();
+        var command = 'M';
+        var index = 0;
+        foreach (var t in tokens)
+        {
+            var number = t;
+            if (char.IsLetter(t[0]))
+            {
+                command = t[0];
+                index = 0;
+                result.Add(t[..1]);
+                if (t.Length == 1) continue;
+                number = t[1..];
+            }
+
+            var isX = command switch { 'H' => true, 'V' => false, 'Z' => false, _ => index % 2 == 0 };
+            var value = double.Parse(number, inv);
+            result.Add((isX ? 160 - value : value).ToString(inv));
+            index++;
+        }
+        return string.Join(' ', result);
+    }
+}

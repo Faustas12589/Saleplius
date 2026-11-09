@@ -1,0 +1,167 @@
+@page "/workouts"
+@inject ApiService Api
+@inject CustomAuthStateProvider Auth
+
+<PageTitle>Treniruotės · Salė+</PageTitle>
+
+<div class="page-head">
+    <div>
+        <h1>Treniruotės</h1>
+        <p>@(page == null ? "" : Text.Plural(page.TotalCount, "planas", "planai", "planų"))</p>
+    </div>
+    @if (Auth.CanCreateContent)
+    {
+        <a class="btn btn-warning" href="create-workout">Nauja treniruotė</a>
+    }
+</div>
+
+<div class="d-flex flex-wrap gap-2 align-items-center mb-4">
+    <input class="form-control flex-grow-1" style="max-width: 360px;" placeholder="Ieškoti..." @bind="search" @bind:event="oninput" @bind:after="SearchChanged" />
+
+    <select class="form-select w-auto" @bind="sort" @bind:after="Reload">
+        <option value="@WorkoutSort.Rating">Geriausiai įvertintos</option>
+        <option value="@WorkoutSort.Newest">Naujausios</option>
+        <option value="@WorkoutSort.Name">Pagal pavadinimą</option>
+    </select>
+
+    @if (Auth.IsAuthenticated)
+    {
+        <div class="segmented ms-md-auto">
+            <button class="@(onlyMine ? "" : "active")" @onclick="() => SetMine(false)">Visos</button>
+            <button class="@(onlyMine ? "active" : "")" @onclick="() => SetMine(true)">Mano</button>
+        </div>
+    }
+</div>
+
+<div class="row g-4">
+    @* Muscle filter: right column on large screens, above the list on phones *@
+    <div class="col-lg-4 order-lg-2">
+        <MuscleFilter @bind-Selected="muscles" @bind-Selected:after="Reload" Hover="hover" />
+    </div>
+
+    <div class="col-lg-8">
+@if (error != null)
+{
+    <div class="alert alert-danger">@error</div>
+}
+
+@if (page == null)
+{
+    <Loading />
+}
+else if (page.Items.Count == 0)
+{
+    <div class="empty">@(muscles.Count > 0 ? "Nėra treniruočių, apimančių visas pasirinktas raumenų grupes." : onlyMine ? "Dar neturite savo treniruočių." : "Treniruočių nerasta.")</div>
+}
+else
+{
+    <div class="row g-3">
+        @foreach (var w in page.Items)
+        {
+            @* Hovering (or tabbing into) a card lights up its muscles on the body map *@
+            <HoverZone class="col-md-6" Hover="hover" Primary="w.TargetMuscleGroups">
+                <WorkoutCard Workout="w">
+                    <Actions>
+                        <SaveButton Kind="@SavedKind.Workouts" ItemId="@w.Id" />
+                        @* Shown only when the API says this user may delete it (hypermedia "delete" link). *@
+                        @if (w.Links.Has("delete"))
+                        {
+                            <button class="btn btn-sm btn-ghost text-danger ms-auto" @onclick="() => AskDelete(w)">Ištrinti</button>
+                        }
+                    </Actions>
+                </WorkoutCard>
+            </HoverZone>
+        }
+    </div>
+    <Pager Page="page" OnNavigate="LoadUrl" />
+}
+    </div>
+</div>
+
+<ConfirmModal @bind-Request="confirm" />
+
+@code {
+    private Confirmation? confirm;   // the "are you sure?" question shown in ConfirmModal
+
+    private void AskDelete(Workout w) =>
+        confirm = new("Ištrinti treniruotę?", $"„{w.Title}“ bus ištrinta visam laikui kartu su jos komentarais ir įvertinimais.", () => DeleteWorkout(w.Id));
+    private const int PageSize = 6;
+
+    private PagedResult<Workout>? page;
+    private string currentUrl = "";
+    private string? search, error;
+    private string sort = WorkoutSort.Rating;
+    private bool onlyMine;
+    private IReadOnlyList<string> muscles = Array.Empty<string>();
+    private readonly MuscleHover hover = new();
+
+    // Search waits until typing pauses, instead of calling the API on every key press.
+    private CancellationTokenSource? searchPause;
+
+    private async Task SearchChanged()
+    {
+        searchPause?.Cancel();
+        searchPause = new CancellationTokenSource();
+        try
+        {
+            await Task.Delay(300, searchPause.Token);
+        }
+        catch (TaskCanceledException)
+        {
+            return;
+        }
+        await Reload();
+    }
+
+    /// <summary>Page 1 with the current filters. Later pages come from the API's "next"/"prev" links.</summary>
+    private string FirstPageUrl => ApiService.Url("api/workouts", new()
+    {
+        ["search"] = search,
+        ["muscleGroup"] = muscles.Count == 0 ? null : string.Join(",", muscles),
+        ["sort"] = sort,
+        ["authorId"] = onlyMine ? Auth.CurrentUser?.Id : null,
+        ["page"] = "1",
+        ["pageSize"] = PageSize.ToString()
+    });
+
+    protected override async Task OnInitializedAsync()
+    {
+        Auth.AuthenticationStateChanged += _ => InvokeAsync(Reload);
+        await Reload();
+    }
+
+    private Task Reload() => LoadUrl(FirstPageUrl);
+
+    private async Task LoadUrl(string url)
+    {
+        try
+        {
+            error = null;
+            page = await Api.GetPageAsync<Workout>(url);
+            currentUrl = url;
+        }
+        catch (Exception ex)
+        {
+            error = $"Nepavyko pasiekti API: {ex.Message}";
+            page ??= new();
+        }
+    }
+
+    private async Task SetMine(bool mine)
+    {
+        onlyMine = mine;
+        await Reload();
+    }
+
+    private async Task DeleteWorkout(string id)
+    {
+        if (await Api.DeleteWorkoutAsync(id))
+        {
+            await LoadUrl(currentUrl);
+        }
+        else
+        {
+            error = "Nepavyko ištrinti treniruotės.";
+        }
+    }
+}

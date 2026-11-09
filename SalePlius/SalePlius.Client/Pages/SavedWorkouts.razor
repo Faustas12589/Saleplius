@@ -1,0 +1,150 @@
+@page "/saved"
+@page "/saved-workouts"
+@attribute [Authorize]
+@implements IDisposable
+@inject ApiService Api
+@inject SavedStore Saved
+
+<PageTitle>Išsaugoti · Salė+</PageTitle>
+
+<div class="page-head">
+    <div>
+        <h1>Išsaugoti</h1>
+        <p>Programos, treniruotės ir pratimai, prie kurių norite sugrįžti.</p>
+    </div>
+</div>
+
+<div class="segmented mb-4">
+    <button class="@(tab == SavedKind.Programs ? "active" : "")" @onclick="() => tab = SavedKind.Programs">Programos <span class="tab-count">@programs.Count</span></button>
+    <button class="@(tab == SavedKind.Workouts ? "active" : "")" @onclick="() => tab = SavedKind.Workouts">Treniruotės <span class="tab-count">@workouts.Count</span></button>
+    <button class="@(tab == SavedKind.Exercises ? "active" : "")" @onclick="() => tab = SavedKind.Exercises">Pratimai <span class="tab-count">@exercises.Count</span></button>
+</div>
+
+@if (error != null)
+{
+    <div class="alert alert-danger">@error</div>
+}
+
+@if (loading)
+{
+    <Loading />
+}
+else if (tab == SavedKind.Programs)
+{
+    @if (programs.Count == 0)
+    {
+        <EmptyState What="programų" Href="programs" Link="Naršyti programas" />
+    }
+    else
+    {
+        <div class="row g-3">
+            @foreach (var p in programs)
+            {
+                <div class="col-md-6 col-lg-4">
+                    <ProgramCard Program="p">
+                        <Actions><SaveButton Kind="@SavedKind.Programs" ItemId="@p.Id" /></Actions>
+                    </ProgramCard>
+                </div>
+            }
+        </div>
+    }
+}
+else if (tab == SavedKind.Workouts)
+{
+    @if (workouts.Count == 0)
+    {
+        <EmptyState What="treniruočių" Href="workouts" Link="Naršyti treniruotes" />
+    }
+    else
+    {
+        <div class="row g-3">
+            @foreach (var w in workouts)
+            {
+                <div class="col-md-6 col-lg-4">
+                    <WorkoutCard Workout="w">
+                        <Actions><SaveButton Kind="@SavedKind.Workouts" ItemId="@w.Id" /></Actions>
+                    </WorkoutCard>
+                </div>
+            }
+        </div>
+    }
+}
+else
+{
+    @if (exercises.Count == 0)
+    {
+        <EmptyState What="pratimų" Href="exercises" Link="Naršyti pratimus" />
+    }
+    else
+    {
+        <div class="row g-3">
+            @foreach (var ex in exercises)
+            {
+                <div class="col-md-6 col-lg-4">
+                    <div class="card h-100">
+                        <div class="card-body">
+                            <h3 class="h6 fw-bold mb-1">@ex.Name</h3>
+                            <div class="meta mb-2">@ex.CreatedByUserName<span class="dot">@WorkoutCard.DifficultyLt(ex.Difficulty)</span></div>
+                            <div class="d-flex flex-wrap gap-1 mb-2">
+                                <span class="chip">@ex.MuscleGroup</span>
+                                <span class="chip">@ex.Equipment</span>
+                            </div>
+                            <p class="small text-secondary mb-0 clamp-2">@ex.Description</p>
+                        </div>
+                        <div class="card-footer py-2">
+                            <SaveButton Kind="@SavedKind.Exercises" ItemId="@ex.Id" />
+                        </div>
+                    </div>
+                </div>
+            }
+        </div>
+    }
+}
+
+@code {
+    private string tab = SavedKind.Programs;
+    private List<TrainingProgram> programs = new();
+    private List<Workout> workouts = new();
+    private List<Exercise> exercises = new();
+    private bool loading = true;
+    private string? error;
+
+    protected override async Task OnInitializedAsync()
+    {
+        Saved.Changed += OnSavedChanged;
+        await Load();
+
+        // Open the first tab that has something in it.
+        tab = programs.Count > 0 ? SavedKind.Programs
+            : workouts.Count > 0 ? SavedKind.Workouts
+            : exercises.Count > 0 ? SavedKind.Exercises
+            : SavedKind.Programs;
+    }
+
+    private async Task Load()
+    {
+        try
+        {
+            var programIds = await Saved.GetAsync(SavedKind.Programs);
+            var workoutIds = await Saved.GetAsync(SavedKind.Workouts);
+            var exerciseIds = await Saved.GetAsync(SavedKind.Exercises);
+
+            programs = (await Api.GetProgramsAsync()).Where(p => programIds.Contains(p.Id)).ToList();
+            workouts = (await Api.GetWorkoutsAsync()).Where(w => workoutIds.Contains(w.Id)).ToList();
+            exercises = (await Api.GetExercisesAsync()).Where(e => exerciseIds.Contains(e.Id)).ToList();
+        }
+        catch (Exception ex)
+        {
+            error = $"Nepavyko užkrauti išsaugotų: {ex.Message}";
+        }
+        finally
+        {
+            loading = false;
+        }
+    }
+
+    // Unsaving from this page removes the card straight away.
+    private void OnSavedChanged() => InvokeAsync(async () => { await Load(); StateHasChanged(); });
+
+    public void Dispose() => Saved.Changed -= OnSavedChanged;
+}

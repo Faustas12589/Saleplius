@@ -1,0 +1,105 @@
+@page "/profile"
+@page "/profile/{Id}"
+@inject ApiService Api
+@inject CustomAuthStateProvider Auth
+@inject NavigationManager Nav
+
+<PageTitle>@(profile?.User.Username ?? "Profilis") · Salė+</PageTitle>
+
+@if (loading)
+{
+    <Loading />
+}
+else if (profile == null)
+{
+    <div class="empty">Vartotojas nerastas.</div>
+}
+else
+{
+    var u = profile.User;
+    var isMe = u.Id == Auth.CurrentUser?.Id;
+
+    <div class="profile-head">
+        <span class="avatar-lg">@(u.Username.Length > 0 ? u.Username[..1].ToUpperInvariant() : "?")</span>
+        <div>
+            <div class="eyebrow">@(AppRoles.IsAdmin(u.Role) ? "Administratorius" : "Narys") · nuo @u.CreatedAt.ToLocalTime().ToString("yyyy-MM-dd")</div>
+            <h1 class="mb-1" style="font-size: clamp(1.6rem, 3vw, 2.2rem);">@u.Username @(isMe ? "(jūs)" : "")</h1>
+            @if (!string.IsNullOrWhiteSpace(u.Bio))
+            {
+                <p class="mb-0" style="color: var(--ink-2);">@u.Bio</p>
+            }
+            @if (!string.IsNullOrEmpty(u.Email))
+            {
+                <div class="meta">@u.Email</div>
+            }
+        </div>
+    </div>
+
+    <div class="stat-row">
+        <div class="stat"><strong>@profile.Stats.Programs</strong><span>programos</span></div>
+        <div class="stat"><strong>@profile.Stats.Workouts</strong><span>treniruotės</span></div>
+        <div class="stat"><strong>@profile.Stats.Exercises</strong><span>pratimai</span></div>
+        <div class="stat">
+            <strong>@(profile.Stats.RatingsReceived > 0 ? profile.Stats.AverageRating.ToString("0.0") : "–")</strong>
+            <span>vid. įvertinimas (@profile.Stats.RatingsReceived)</span>
+        </div>
+        @if (profile.Saved != null)
+        {
+            <a href="saved" class="stat text-decoration-none text-reset">
+                <strong>@(profile.Saved.Programs + profile.Saved.Workouts + profile.Saved.Exercises)</strong>
+                <span>išsaugota</span>
+            </a>
+        }
+    </div>
+
+    <h2 class="section-title">Programos</h2>
+    @if (profile.Programs.Count == 0)
+    {
+        <div class="empty py-4 mb-5">Programų dar nėra.</div>
+    }
+    else
+    {
+        <div class="row g-3 mb-5">
+            @foreach (var p in profile.Programs)
+            {
+                <div class="col-md-6 col-lg-4"><ProgramCard Program="p" /></div>
+            }
+        </div>
+    }
+
+    <h2 class="section-title">Treniruotės</h2>
+    @if (profile.Workouts.Count == 0)
+    {
+        <div class="empty py-4">Treniruočių dar nėra.</div>
+    }
+    else
+    {
+        <div class="row g-3">
+            @foreach (var w in profile.Workouts)
+            {
+                <div class="col-md-6 col-lg-4"><WorkoutCard Workout="w" /></div>
+            }
+        </div>
+    }
+}
+
+@code {
+    [Parameter] public string? Id { get; set; }
+
+    private UserProfileDetails? profile;
+    private bool loading = true;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        loading = true;
+        var id = Id ?? Auth.CurrentUser?.Id;
+        if (id == null)
+        {
+            Nav.NavigateTo("login");
+            return;
+        }
+
+        profile = await Api.GetProfileAsync(id);
+        loading = false;
+    }
+}
